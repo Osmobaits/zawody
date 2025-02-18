@@ -8,7 +8,7 @@ from flask_wtf import FlaskForm
 import secrets
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://username:password@localhost/dbname'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://magazyn_user:FH1mT4UHJvVrqmXXfQz6koc6FnVB3szQ@dpg-cuovb9ggph6c73dqpvc0-a/magazyn'
 app.config['SECRET_KEY'] = 'your_secret_key'
 
 db = SQLAlchemy(app)
