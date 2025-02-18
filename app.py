@@ -6,8 +6,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from wtforms import StringField, PasswordField, SubmitField, validators, SelectField
 from flask_wtf import FlaskForm
 from flask_migrate import upgrade
-with app.app_context():
-upgrade()
+with app.app_context() 
+    upgrade()
 import secrets
 
 app = Flask(__name__)
