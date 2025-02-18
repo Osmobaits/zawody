@@ -1,45 +1,83 @@
-from flask import Flask, render_template, redirect, url_for, request, flash
+from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
-from flask_migrate import Migrate
-from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
-from werkzeug.security import generate_password_hash, check_password_hash
-from wtforms import StringField, PasswordField, SubmitField, validators, SelectField
-from flask_wtf import FlaskForm
-from flask_migrate import upgrade
 
-# Utwórz aplikację bezpośrednio w tym pliku, aby uniknąć błędu ImportError
 app = Flask(__name__)
-with app.app_context():
-    upgrade()
-    
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://magazyn_user:FH1mT4UHJvVrqmXXfQz6koc6FnVB3szQ@dpg-cuovb9ggph6c73dqpvc0-a/magazyn'
-app.config['SECRET_KEY'] = 'your_secret_key'
+app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///fishing_competition.db"
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
-migrate = Migrate(app, db)
-login_manager = LoginManager(app)
-login_manager.login_view = 'login'
 
-class User(UserMixin, db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(150), unique=True, nullable=False)
-    password = db.Column(db.String(150), nullable=False)
-    role = db.Column(db.String(50), nullable=False, default='user')
-    reset_token = db.Column(db.String(100), unique=True, nullable=True)
-
+# Model zawodów
 class Competition(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(150), nullable=False)
-    date = db.Column(db.Date, nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    date = db.Column(db.String(20), nullable=False)
+    location = db.Column(db.String(100), nullable=False)
+    participants = db.relationship("Participant", backref="competition", cascade="all, delete-orphan")
 
+# Model zawodnika
 class Participant(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(150), nullable=False)
-    competition_id = db.Column(db.Integer, db.ForeignKey('competition.id'))
+    name = db.Column(db.String(100), nullable=False)
+    surname = db.Column(db.String(100), nullable=False)
+    weight = db.Column(db.Float, nullable=False)
+    competition_id = db.Column(db.Integer, db.ForeignKey("competition.id"), nullable=False)
 
-# Pełny kod aplikacji Flask:
-# - System logowania z PostgreSQL
-# - Obsługa użytkowników, resetu hasła i ról
-# - Nowe tabele Competition i Participant do programu Zawody w tej samej bazie co magazyn
-# - Gotowe do uruchomienia w Render.com lub lokalnie
-# Zapisz jako app.py, dodaj katalog templates i uruchom `flask db migrate` oraz `flask db upgrade` po dodaniu nowych tabel.
+with app.app_context():
+    db.create_all()
+
+# Endpoint do pobierania zawodów
+@app.route("/competitions", methods=["GET"])
+def get_competitions():
+    competitions = Competition.query.all()
+    return jsonify([{ "id": c.id, "name": c.name, "date": c.date, "location": c.location, "participants": [{ "id": p.id, "name": p.name, "surname": p.surname, "weight": p.weight } for p in c.participants] } for c in competitions])
+
+# Endpoint do dodawania zawodów
+@app.route("/competitions", methods=["POST"])
+def add_competition():
+    data = request.json
+    new_competition = Competition(name=data["name"], date=data["date"], location=data["location"])
+    db.session.add(new_competition)
+    db.session.commit()
+    return jsonify({"message": "Competition added successfully!"}), 201
+
+# Endpoint do pobierania zawodników
+@app.route("/participants", methods=["GET"])
+def get_participants():
+    competition_id = request.args.get("competition_id")
+    if competition_id:
+        participants = Participant.query.filter_by(competition_id=competition_id).all()
+    else:
+        participants = Participant.query.all()
+    return jsonify([{ "id": p.id, "name": p.name, "surname": p.surname, "weight": p.weight, "competition_id": p.competition_id } for p in participants])
+
+# Endpoint do dodawania zawodników
+@app.route("/participant", methods=["POST"])
+def add_participant():
+    data = request.json
+    new_participant = Participant(name=data["name"], surname=data["surname"], weight=data["weight"], competition_id=data["competition_id"])
+    db.session.add(new_participant)
+    db.session.commit()
+    return jsonify({"message": "Participant added successfully!"}), 201
+
+# Endpoint do edytowania zawodnika
+@app.route("/participant/<int:participant_id>", methods=["PUT"])
+def update_participant(participant_id):
+    data = request.json
+    participant = Participant.query.get_or_404(participant_id)
+    participant.name = data.get("name", participant.name)
+    participant.surname = data.get("surname", participant.surname)
+    participant.weight = data.get("weight", participant.weight)
+    db.session.commit()
+    return jsonify({"message": "Participant updated successfully!"})
+
+# Endpoint do usuwania zawodnika
+@app.route("/participant/<int:participant_id>", methods=["DELETE"])
+def delete_participant(participant_id):
+    participant = Participant.query.get_or_404(participant_id)
+    db.session.delete(participant)
+    db.session.commit()
+    return jsonify({"message": "Participant deleted successfully!"})
+
+if __name__ == "__main__":
+    app.run(debug=True)
