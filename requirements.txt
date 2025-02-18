@@ -4,3 +4,4 @@ flask-migrate
 flask-login
 flask-wtf
 psycopg2-binary
+gunicorn
