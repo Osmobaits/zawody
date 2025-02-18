@@ -6,11 +6,12 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from wtforms import StringField, PasswordField, SubmitField, validators, SelectField
 from flask_wtf import FlaskForm
 from flask_migrate import upgrade
-from app import app  # Importuj aplikację Flask, jeśli znajduje się w `app.py`
+
+# Utwórz aplikację bezpośrednio w tym pliku, aby uniknąć błędu ImportError
+app = Flask(__name__)
 with app.app_context():
     upgrade()
-
-app = Flask(__name__)
+    
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://magazyn_user:FH1mT4UHJvVrqmXXfQz6koc6FnVB3szQ@dpg-cuovb9ggph6c73dqpvc0-a/magazyn'
 app.config['SECRET_KEY'] = 'your_secret_key'
 
