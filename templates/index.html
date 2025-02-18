@@ -1,1 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fishing Competition Management</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
+    <style>
+        .participant-container {
+            margin-bottom: 30px;
+            padding: 15px;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+            background-color: #f8f9fa;
+        }
+
+        @media (max-width: 767px) {
+            .btn-sm {
+                padding: 8px 12px;
+                font-size: 14px;
+                margin: 3px;
+            }
+
+            .d-flex.gap-1 {
+                gap: 5px !important;
+            }
+        }
+    </style>
+</head>
+<body class="container mt-4">
+
+<div id="participant-list"></div>
+<div id="competition-list"></div>
+
+<script>
+    async function fetchParticipants() {
+        const response = await fetch('/participants');
+        let participants = await response.json();
+        participants.sort((a, b) => a.id - b.id);
+
+        const participantSelect = document.getElementById('participant-select');
+        if (participantSelect) {
+            participantSelect.innerHTML = participants.map(p => `
+                <option value="${p.id}">${p.name} ${p.surname}</option>`).join('');
+        }
+
+        document.getElementById('participant-list').innerHTML = participants.map(p => `
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                <a href="#participant-${p.id}" class="text-primary text-decoration-none">${p.name} ${p.surname}</a>
+                <div>
+                    <button class="btn btn-sm btn-warning" onclick="editParticipant(${p.id}, '${encodeURIComponent(p.name)}', '${encodeURIComponent(p.surname)}', ${p.weight}, ${p.competition_id})">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteParticipant(${p.id})">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </li>`).join('');
+    }
+
+    async function fetchCompetitions() {
+        const response = await fetch('/competitions');
+        if (!response.ok) {
+            document.getElementById('competition-list').innerHTML = '<p class="text-danger">Failed to load competitions.</p>';
+            return;
+        }
+        let competitions = await response.json();
+        document.getElementById('competition-list').innerHTML = competitions.map(comp => `
+            <div class="participant-container" id="competition-${comp.id}">
+                <h4>${comp.name} - ${comp.date}</h4>
+                <table class="table table-bordered">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Name</th>
+                            <th>Surname</th>
+                            <th>Weight</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${comp.participants.sort((a, b) => a.name.localeCompare(b.name)).map(p => `
+                            <tr>
+                                <td>${p.name}</td>
+                                <td>${p.surname}</td>
+                                <td>${p.weight}</td>
+                                <td class="d-flex gap-1">
+                                    <button class="btn btn-sm btn-warning" onclick="editParticipant(${p.id}, '${encodeURIComponent(p.name)}', '${encodeURIComponent(p.surname)}', ${p.weight}, ${p.competition_id})">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-danger" onclick="deleteParticipant(${p.id})">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </td>
+                            </tr>`).join('')}
+                    </tbody>
+                </table>
+                <a href="#participant-list" class="btn btn-secondary mt-2">Back</a>
+            </div>`).join('');
+    }
+
+    document.addEventListener("DOMContentLoaded", function() {
+        fetchParticipants();
+        fetchCompetitions();
+    });
+</script>
+
+</body>
+</html>
 
