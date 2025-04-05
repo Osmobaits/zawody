@@ -1,1 +1,1 @@
-Procfile web: gunicorn run:app 
+web: python create_tables.py && gunicorn run:app
