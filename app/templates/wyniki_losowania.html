@@ -1,0 +1,244 @@
+{# File: templates/wyniki_losowania.html #}
+{% extends "base.html" %}
+
+{% block title %}Wyniki Losowania{% endblock %}
+
+{% block content %}
+    <h2>Wyniki Losowania</h2>
+
+    {# Sekcja wyświetlania powtórzeń sekwencji #}
+    <div class="card mb-4 shadow-sm">
+        <div class="card-header">
+            <i class="bi bi-bar-chart-steps me-1"></i> Powtórzenia sekwencji (StrefaSektor)
+             <small class="text-muted float-right">(Tylko dla zawodników z kompletnym losowaniem)</small>
+        </div>
+        <div class="card-body">
+            {% if powtorzenia %}
+                <div class="powtorzenia-container">
+                    {% set items_per_column = 10 %}
+                    {% for grupa_sekwencji in powtorzenia.items()|sort(attribute='0')|batch(items_per_column) %}
+                        <div class="powtorzenia-kolumna">
+                            <ul>
+                                {% for sekwencja, liczba in grupa_sekwencji %}
+                                    <li>
+                                       <span class="sekwencja">{{ sekwencja }}</span>: <span class="liczba-powtorzen badge badge-info">{{ liczba }}</span>
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="text-muted mb-0">Brak danych o powtórzeniach (losowanie niekompletne, brak sektorów lub nieprzeprowadzone).</p>
+            {% endif %}
+        </div>
+    </div>
+
+    {# Przyciski akcji PDF i inne #}
+    <div class="mb-3">
+        {% if ustawienia %}
+            <span class="mr-2 font-weight-bold">Akcje:</span>
+            {% for t in range(1, ustawienia.liczba_tur + 1) %}
+                 <a href="{{ url_for('generuj_pdf', tura=t) }}" class="btn btn-outline-danger btn-sm mb-1" target="_blank" title="Generuj PDF dla Tury {{t}}">
+                     <i class="bi bi-file-earmark-pdf"></i> PDF T{{ t }}
+                 </a>
+            {% endfor %}
+        {% endif %}
+        {% if current_user.is_authenticated and current_user.role in ['admin', 'wagowy'] %}
+            <a href="{{ url_for('wprowadz_wyniki') }}" class="btn btn-success btn-sm mb-1" title="Przejdź do wprowadzania wyników wagowych"><i class="bi bi-input-cursor-text"></i> Wprowadź wyniki</a>
+        {% endif %}
+        {% if current_user.is_authenticated and current_user.role == 'admin' %}
+         <a href="{{ url_for('losowanie') }}" class="btn btn-info btn-sm mb-1" title="Wróć do opcji losowania"><i class="bi bi-shuffle"></i> Panel Losowania</a>
+        {% endif %}
+         <a href="{{ url_for('index') }}" class="btn btn-secondary btn-sm mb-1" title="Wróć do strony głównej"><i class="bi bi-arrow-left-circle"></i> Powrót</a>
+    </div>
+    <hr>
+
+    {# Formularz do RĘCZNEJ edycji sektorów i stanowisk #}
+    <h3>Ręczna Edycja Sektorów i Stanowisk</h3>
+     <p class="small text-muted">Tutaj możesz ręcznie poprawić przypisane sektory (pojedyncza wielka litera A-Z) i numery stanowisk. Zmiany nadpiszą poprzednie wartości.</p>
+    <form method="POST" action="{{ url_for('wyniki_losowania') }}">
+        {{ form.hidden_tag() if form else csrf_token() }}
+
+        <div class="table-responsive">
+            <table class="table table-striped table-bordered table-hover table-sm" id="wyniki-table">
+                <thead class="thead-light">
+                    <tr>
+                        <th id="header-nr" scope="col" style="width: 5%;">Nr</th>
+                        <th id="header-zawodnik" scope="col">Zawodnik</th>
+                        {% if ustawienia %}
+                            {% for tura in range(1, ustawienia.liczba_tur + 1) %}
+                                <th id="header-tura{{ tura }}-strefa" scope="col" class="text-center">T{{ tura }} Strefa</th>
+                                <th id="header-tura{{ tura }}-sektor" scope="col" class="text-center">T{{ tura }} Sektor (Edytuj)</th>
+                                <th id="header-tura{{ tura }}-stanowisko" scope="col" class="text-center">T{{ tura }} Stan. (Edytuj)</th>
+                            {% endfor %}
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if wyniki %}
+                        {% for wynik in wyniki %}
+                        <tr data-wynik-id="{{ wynik.id }}">
+                            <td>{{ loop.index }}</td>
+                            <td class="align-middle">
+                                {% if wynik.zawodnik %}
+                                    {% if wynik.zawodnik.is_puste_miejsce %}
+                                        <i>Puste miejsce</i>
+                                    {% else %}
+                                        {{ wynik.zawodnik.imie_nazwisko }}
+                                    {% endif %}
+                                {% else %}
+                                    <span class="text-danger small">BŁĄD: Brak obiektu zawodnika (ID: {{ wynik.zawodnik_id }})</span>
+                                {% endif %}
+                            </td>
+                            {% if ustawienia %}
+                                {% for tura in range(1, ustawienia.liczba_tur + 1) %}
+                                    {# Strefa (nieedytowalna) - użycie [] z default #}
+                                    <td class="text-center align-middle">{{ wynik['tura' ~ tura ~ '_strefa'] | default('?', true) }}</td>
+
+                                    {# Sektor (edytowalny) - użycie [] z default #}
+                                    <td class="text-center align-middle">
+                                        {% set pole_sektor_name = 'sektor_%d_%d' % (wynik.id, tura) %}
+                                        {# === POPRAWKA: Dostęp przez [] zamiast getattr === #}
+                                        {% set aktualny_sektor = wynik['tura' ~ tura ~ '_sektor'] | default('', true) %}
+                                        <input type="text"
+                                               name="{{ pole_sektor_name }}"
+                                               value="{{ aktualny_sektor }}"
+                                               class="form-control form-control-sm text-center"
+                                               maxlength="1"
+                                               pattern="[A-Z]"
+                                               oninput="this.value = this.value.toUpperCase()"
+                                               title="Wpisz jedną wielką literę sektora (A-Z)"
+                                               style="width: 55px; margin: auto;">
+                                    </td>
+
+                                    {# Stanowisko (edytowalne) - użycie [] z default #}
+                                    <td class="text-center align-middle">
+                                        {% set pole_stan_name = 'stanowisko_%d_%d' % (wynik.id, tura) %}
+                                        {# === POPRAWKA: Dostęp przez [] zamiast getattr === #}
+                                        {% set aktualne_stanowisko = wynik['tura' ~ tura ~ '_stanowisko'] | default('', true) %}
+                                        <input type="number"
+                                               name="{{ pole_stan_name }}"
+                                               value="{{ aktualne_stanowisko }}"
+                                               class="form-control form-control-sm text-center"
+                                               min="1"
+                                               step="1"
+                                               style="width: 70px; margin: auto;">
+                                    </td>
+                                {% endfor %} {# Koniec pętli po turach #}
+                            {% endif %} {# Koniec if ustawienia #}
+                        </tr>
+                        {% endfor %} {# Koniec pętli po wynikach #}
+                    {% else %}
+                        {# ... (komunikat o braku wyników) ... #}
+                        <tr>
+                            <td colspan="{{ 2 + (ustawienia.liczba_tur * 3 if ustawienia else 1) }}">
+                                Brak wyników losowania do wyświetlenia. Przeprowadź losowanie w Panelu Losowania.
+                            </td>
+                        </tr>
+                    {% endif %} {# Koniec if wyniki #}
+                </tbody>
+            </table>
+        </div> {# Koniec table-responsive #}
+
+        {% if current_user.is_authenticated and current_user.role == 'admin' %}
+            <button type="submit" class="btn btn-warning mt-3"><i class="bi bi-save me-1"></i> Zapisz Ręczne Zmiany</button>
+             <small class="form-text text-muted d-block mt-1">Zapisuje zmiany wprowadzone w polach "Sektor" i "Stan." powyżej.</small>
+        {% endif %}
+    </form>
+
+    {# Skrypt sortowania tabeli (bez zmian w logice, ale upewnijmy się, że getCellValue działa) #}
+     <script>
+        document.addEventListener('DOMContentLoaded', function() {
+          const table = document.getElementById('wyniki-table');
+          if (!table) return;
+          const headers = table.querySelectorAll('th');
+          let sortColumn = -1;
+          let sortOrder = 1;
+
+          function getCellValue(row, columnIndex) {
+            const cell = row.cells[columnIndex];
+            if (!cell) return '';
+            // Odczytuj wartość z inputa jeśli istnieje w komórce
+            const input = cell.querySelector('input[type="number"], input[type="text"]');
+            if (input) {
+                const value = input.value.trim();
+                if (input.type === 'number') { return value === '' ? Infinity : Number(value); }
+                return value.toUpperCase(); // Zwróć tekst sektora jako wielkie litery
+            }
+            // W przeciwnym razie zwróć tekst komórki (np. dla Strefy)
+            return cell.textContent.trim();
+          }
+
+          // ... (reszta skryptu sortowania bez zmian: funkcja sortTable, event listenery dla nagłówków) ...
+           function sortTable(columnIndex) {
+              const tbody = table.querySelector('tbody');
+              if (!tbody) return;
+              const rows = Array.from(tbody.querySelectorAll('tr'));
+              if (rows.length === 0) return;
+
+              rows.sort((rowA, rowB) => {
+                const valA = getCellValue(rowA, columnIndex);
+                const valB = getCellValue(rowB, columnIndex);
+
+                if (typeof valA === 'number' && typeof valB === 'number') {
+                     if (valA === Infinity && valB !== Infinity) return sortOrder === 1 ? 1 : -1;
+                     if (valB === Infinity && valA !== Infinity) return sortOrder === 1 ? -1 : 1;
+                     if (valA === Infinity && valB === Infinity) return 0;
+                    return (valA - valB) * sortOrder;
+                } else {
+                    const strA = String(valA); const strB = String(valB);
+                    return strA.localeCompare(strB, 'pl', { sensitivity: 'base' }) * sortOrder;
+                }
+              });
+              rows.forEach(row => tbody.appendChild(row));
+
+              headers.forEach((header, index) => {
+                    header.classList.remove('sorted-asc', 'sorted-desc');
+                    const arrowSpan = header.querySelector('.sort-arrow');
+                    if(arrowSpan) arrowSpan.textContent = '';
+                    if (index === sortColumn) {
+                        header.classList.add(sortOrder === 1 ? 'sorted-asc' : 'sorted-desc');
+                         if(arrowSpan) arrowSpan.textContent = (sortOrder === 1 ? ' ▲' : ' ▼');
+                    }
+              });
+          }
+
+          headers.forEach((header, index) => {
+            if(!header.id) return;
+            if (!header.querySelector('.sort-arrow')) {
+                const arrowSpan = document.createElement('span');
+                arrowSpan.classList.add('sort-arrow');
+                header.appendChild(arrowSpan);
+            }
+            header.style.cursor = 'pointer';
+            header.addEventListener('click', () => {
+                if (sortColumn === index) { sortOrder *= -1; }
+                else { sortColumn = index; sortOrder = 1; }
+                sortTable(index);
+            });
+        });
+
+        });
+    </script>
+
+    {# Style CSS (bez zmian) #}
+    <style>
+      .powtorzenia-container { display: flex; flex-wrap: wrap; font-size: 0.9em; border: 1px solid #dee2e6; padding: 10px; background-color: #f8f9fa; border-radius: .25rem; }
+      .powtorzenia-kolumna { flex: 0 0 auto; min-width: 200px; margin-right: 15px; margin-bottom: 5px; }
+      .powtorzenia-kolumna ul { list-style-type: none; padding-left: 0; margin-bottom: 0; }
+      .powtorzenia-kolumna li { margin-bottom: 2px; }
+      .sekwencja { font-family: 'Courier New', Courier, monospace; font-weight: bold; color: #0056b3; }
+      .liczba-powtorzen { font-size: 0.95em; }
+      .sort-arrow { margin-left: 5px; display: inline-block; width: 1em; font-size: 0.8em; }
+      #wyniki-table th[id] { cursor: pointer; user-select: none; }
+      #wyniki-table th[id]:hover { background-color: #e9ecef; }
+      #wyniki-table th.sorted-asc .sort-arrow::after { content: ' ▲'; }
+      #wyniki-table th.sorted-desc .sort-arrow::after { content: ' ▼'; }
+      .table th, .table td { vertical-align: middle !important; }
+      .table.table-sm .form-control-sm { padding: .2rem .4rem; font-size: .875rem; line-height: 1.5; border-radius: .2rem; }
+      #wyniki-table input[type=text].text-center,
+      #wyniki-table input[type=number].text-center { text-align: center; }
+    </style>
+
+{% endblock %}

@@ -1,0 +1,168 @@
+{# File: templates/public_zawody.html #}
+<!doctype html>
+<html lang="pl">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Wyniki na Żywo - {{ zawody.nazwa if zawody else 'Zawody' }}</title>
+    {# Link Bootstrap 5 #}
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+    {# Link Bootstrap Icons #}
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        body { padding-top: 20px; padding-bottom: 40px; background-color: #f8f9fa; }
+        .container { max-width: 1200px; }
+        .card-header { font-weight: bold; background-color: rgba(0,0,0,.03); }
+        .table caption { caption-side: top; padding: 0.5rem 0.5rem; color: #6c757d; text-align: left; font-size: 0.9em; }
+        h1, h2, h3 { color: #0d6efd; } /* Primary blue */
+        h5 { color: #343a40; } /* Darker grey for sector titles */
+        .sector-table th { background-color: #e9ecef; }
+        .overall-table th { background-color: #cfe2ff; border-color: #9ec5fe; } /* Lighter blue for overall header */
+        .table-sm > :not(caption) > * > * { padding: 0.4rem 0.4rem; } /* Adjust padding for table-sm */
+        .overall-place { font-size: 1.1em; }
+        .sector-place { font-weight: bold; }
+        .zero-weight-sep td { border-top: 2px dashed #adb5bd !important; } /* Separator for zero weight */
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom">
+            <h1 class="h2">Wyniki Zawodów</h1> {# Zmniejszono trochę nagłówek #}
+            <h2 class="h4 text-muted">{{ zawody.nazwa if zawody else 'Wczytywanie...'}}</h2> {# Zmniejszono też ten #}
+        </header>
+
+        {# Komunikat (np. brak zawodników, brak wyników) #}
+        {% if message %}
+            <div class="alert alert-info shadow-sm">{{ message }}</div>
+        {% endif %}
+
+        {# --- Sekcja: Klasyfikacja Ogólna --- #}
+        {% if klasyfikacja_ogolna %} {# Wystarczy sprawdzić, czy lista nie jest pusta #}
+            <div class="card shadow-sm mb-5">
+                <div class="card-header"><i class="bi bi-trophy-fill me-1"></i> Klasyfikacja Ogólna (Tury: {{ rundy_aktywne | join(', ') if rundy_aktywne else 'Brak' }})</div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover table-bordered table-sm mb-0 overall-table">
+                             <caption class="px-2 small">Sortowanie: 1. Punkty (min), 2. Waga (max), 3. Max BF (max), 4. Nazwisko. Zero wag na końcu.</caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col" class="text-center align-middle">Msc.</th>
+                                    <th scope="col" class="text-center align-middle">Zawodnik</th>
+                                    <th scope="col" class="text-center align-middle" title="Suma punktów sektorowych (mniej = lepiej)">Suma Pkt</th>
+                                    <th scope="col" class="text-center align-middle" title="Suma Waga+BF (więcej = lepiej)">Suma Wagi (g)</th>
+                                    <th scope="col" class="text-center align-middle" title="Największy BigFish (więcej = lepiej)">Max BF (g)</th>
+                                    {% if rundy_aktywne %}
+                                        {% for t in rundy_aktywne %}
+                                            <th scope="col" class="text-center align-middle">T{{t}} Pkt</th>
+                                            <th scope="col" class="text-center align-middle">T{{t}} Waga(∑)</th>
+                                        {% endfor %}
+                                    {% endif %}
+                                </tr>
+                            </thead>
+                            <tbody class="table-group-divider">
+                                {% set zero_weight_group_started = false %}
+                                {% for wynik in klasyfikacja_ogolna %}
+                                    {% if not zero_weight_group_started and wynik.total_waga <= 0 %}
+                                        {% set zero_weight_group_started = true %}
+                                        {# Separator dla grupy z zerową wagą #}
+                                        <tr class="zero-weight-sep"><td colspan="{{ 5 + (rundy_aktywne|length * 2 if rundy_aktywne else 0) }}" class="text-center table-light fst-italic small py-1">Zawodnicy bez złowionych ryb</td></tr>
+                                    {% endif %}
+                                    <tr class="{{ 'table-light text-muted' if wynik.total_waga <= 0 else '' }}"> {# Użyto table-light dla zer #}
+                                        <td class="text-center fw-bold align-middle overall-place">{{ wynik.miejsce }}</td>
+                                        <td class="align-middle">{{ wynik.imie_nazwisko }}</td>
+                                        <td class="text-center fw-bold align-middle">{{ "%.1f" | format(wynik.total_points) }}</td>
+                                        <td class="text-end align-middle">{{ wynik.total_waga }}</td>
+                                        <td class="text-end align-middle">{{ wynik.max_bigfish }}</td>
+                                        {% if rundy_aktywne %}
+                                             {% for t in rundy_aktywne %}
+                                                {% set dane_tury = wynik.tury_data.get(t, {}) %}
+                                                {% set pkt_tura = dane_tury.get('punkty', None) %}
+                                                <td class="text-center align-middle">{{ "%.1f" | format(pkt_tura) if pkt_tura is number else '-' }}</td>
+                                                {% set waga_tura = dane_tury.get('waga', None) %}
+                                                {% set bf_tura = dane_tury.get('bigfish', None) %}
+                                                {% if waga_tura is number or bf_tura is number %}
+                                                    <td class="text-end align-middle">{{ (waga_tura|default(0)) + (bf_tura|default(0)) }}</td> {# Usunięto 'true' z default #}
+                                                {% else %}
+                                                    <td class="text-end align-middle">-</td>
+                                                {% endif %}
+                                             {% endfor %}
+                                        {% endif %}
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        {% elif not message %}
+             <div class="alert alert-warning">Brak danych do wyświetlenia klasyfikacji ogólnej.</div>
+        {% endif %}
+
+        {# --- Sekcja: Wyniki Sektorowe --- #}
+        {% if wyniki_sektorowe_wg_tur %} {# Wystarczy sprawdzić, czy słownik nie jest pusty #}
+            <h3 class="mt-5 mb-3"><i class="bi bi-grid-3x3-gap-fill me-1"></i> Wyniki Sektorowe wg Tur</h3>
+            {% for tura in rundy_aktywne %} {# Iteruj tylko po aktywnych turach #}
+                {% if wyniki_sektorowe_wg_tur.get(tura) %} {# Sprawdź, czy są dane dla tej tury #}
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header">Tura {{ tura }}</div>
+                        <div class="card-body">
+                            <div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-4"> {# Dostosowano kolumny dla XL #}
+                                {% for sektor, wyniki_zawodnikow_sektor in wyniki_sektorowe_wg_tur[tura].items() %}
+                                    <div class="col">
+                                        <h5 class="text-center mb-2">Sektor {{ sektor }}</h5>
+                                        <div class="table-responsive">
+                                            <table class="table table-bordered table-sm table-hover sector-table">
+                                                 <caption class="px-1 small">Wyniki w sektorze {{ sektor }}</caption>
+                                                <thead>
+                                                    <tr>
+                                                        <th class="text-center">Msc.</th>
+                                                        <th>Zawodnik</th>
+                                                        <th class="text-end">Waga</th>
+                                                        <th class="text-end">BF</th>
+                                                        <th class="text-center">Pkt</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {% for wynik_zaw in wyniki_zawodnikow_sektor %}
+                                                        <tr class="{{ 'table-light text-muted' if wynik_zaw.waga_do_punktow <= 0 else '' }}">
+                                                            <td class="text-center sector-place">{{ wynik_zaw.miejsce_w_sektorze }}</td>
+                                                            <td class="small">{{ wynik_zaw.imie_nazwisko }}</td> {# Mniejsza czcionka nazwiska #}
+                                                            <td class="text-end">{{ wynik_zaw.waga }}</td>
+                                                            <td class="text-end">{{ wynik_zaw.bigfish }}</td>
+                                                            <td class="text-center">{{ "%.1f" | format(wynik_zaw.punkty_sektorowe) if wynik_zaw.punkty_sektorowe is number else '-' }}</td>
+                                                        </tr>
+                                                    {% endfor %}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                {% else %}
+                                     {# Ten blok nie powinien być potrzebny, jeśli iterujemy po .items() #}
+                                     <p class="text-muted text-center">Brak danych dla sektorów w tej turze.</p>
+                                {% endfor %}
+                            </div>
+                        </div> {# Koniec card-body #}
+                    </div> {# Koniec card #}
+                {% else %}
+                    {# Wyświetl komunikat, jeśli dla aktywnej tury nie ma wyników sektorowych (dziwne, ale możliwe) #}
+                     <div class="alert alert-warning small">Brak przetworzonych wyników sektorowych dla Tury {{ tura }}.</div>
+                {% endif %} {# Koniec if wyniki_sektorowe_wg_tur.get(tura) #}
+            {% endfor %} {# Koniec pętli po rundach aktywnych #}
+        {% elif not message and rundy_aktywne %}
+             <div class="alert alert-warning">Brak danych do wyświetlenia wyników sektorowych.</div>
+        {% endif %} {# Koniec if wyniki_sektorowe_wg_tur #}
+
+        {# Stopka bez Babel #}
+        <footer class="mt-5 text-center text-muted small">
+             Wygenerowano: {{ generation_time | default('Brak danych o czasie', true) }}
+            <br>
+            <a href="{{ url_for('index') }}">Strona główna aplikacji</a> (może wymagać logowania)
+             {% if current_year %} | © {{ current_year }} System Zawodów {% endif %}
+        </footer>
+
+    </div>{# End Container #}
+
+    {# Bootstrap 5 JS Bundle #}
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
+</body>
+</html>

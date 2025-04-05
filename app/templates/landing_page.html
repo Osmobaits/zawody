@@ -1,0 +1,49 @@
+{# File: templates/landing_page.html #}
+<!doctype html>
+<html lang="pl">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Witamy - System Zawodów Wędkarskich</title>
+    {# Link Bootstrap 5 (lub 4, jeśli używasz starszej wersji) #}
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        /* Proste style dla wyśrodkowania */
+        html, body {
+            height: 100%;
+        }
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding-top: 40px;
+            padding-bottom: 40px;
+            background-color: #f5f5f5;
+        }
+        .landing-container {
+            max-width: 450px;
+            padding: 15px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body class="text-center">
+    <main class="landing-container">
+        <i class="bi bi-water mb-4" style="font-size: 4rem; color: #0d6efd;"></i> {# Ikona wody #}
+        <h1 class="h3 mb-3 fw-normal">System Obsługi Zawodów Wędkarskich</h1>
+        <p class="lead mb-4">
+            Aby zarządzać zawodami, wynikami lub zobaczyć szczegółowe dane, proszę się zalogować.
+        </p>
+        <a href="{{ url_for('login') }}" class="w-100 btn btn-lg btn-primary">
+           <i class="bi bi-box-arrow-in-right me-2"></i> Zaloguj się
+        </a>
+         <p class="mt-4">
+             <a href="{{ url_for('public_lista_zawodow') }}">Zobacz publiczne wyniki zawodów</a>
+         </p>
+        <p class="mt-5 mb-3 text-muted">© {% if current_year %}{{ current_year }}{% else %}{{ now().year if now else '2024'}}{% endif %}</p> {# Potrzebny context_processor dla current_year lub now #}
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
+</body>
+</html>

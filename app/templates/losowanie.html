@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block title %}Losowanie{% endblock %}
+
+{% block content %}
+<h2>Losowanie</h2>
+
+<form method="POST" action="{{ url_for('losuj_sekwencje') }}">
+    <button type="submit" class="btn btn-primary">Losuj sekwencje</button>
+</form>
+
+<form method="POST" action="{{ url_for('losuj_sektory') }}">
+    <button type="submit" class="btn btn-primary">Losuj sektory</button>
+</form>
+
+<form method="POST" action="{{ url_for('losuj_stanowiska') }}">
+    <button type="submit" class="btn btn-primary">Losuj stanowiska</button> {# Nowy przycisk #}
+</form>
+
+{% endblock %}

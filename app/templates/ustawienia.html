@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block title %}Ustawienia zawodów{% endblock %}
+
+{% block content %}
+<h2>Ustawienia zawodów</h2>
+
+<form method="POST" action="{{ url_for('ustawienia') }}" id="ustawienia-form">
+    {{ form.hidden_tag() }}
+    <div class="form-group">
+        {{ form.preferowana_liczba_stref.label }}
+        {{ form.preferowana_liczba_stref(class="form-control", data_max=form.preferowana_liczba_stref.validators[1].max) }}
+        <div class="error-message" id="strefy-error"></div>
+    </div>
+    <div class="form-group">
+        {{ form.preferowana_liczba_sektorow.label }}
+        {{ form.preferowana_liczba_sektorow(class="form-control", data_max=form.preferowana_liczba_sektorow.validators[1].max) }}
+         <div class="error-message" id="sektory-error"></div>
+    </div>
+    <div class="form-group">
+        {{ form.maks_liczba_stanowisk_w_sektorze.label }}
+        {{ form.maks_liczba_stanowisk_w_sektorze(class="form-control", data_max=form.maks_liczba_stanowisk_w_sektorze.validators[1].max) }}
+         <div class="error-message" id="stanowiska-error"></div>
+    </div>
+    <div class="form-group">
+        {{ form.liczba_tur.label }}
+        {{ form.liczba_tur(class="form-control", data_max=form.liczba_tur.validators[1].max) }}
+        <div class="error-message" id="tury-error"></div>
+    </div>
+
+    {{ form.submit(class="btn btn-primary", id="submit-button") }}
+</form>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const form = document.getElementById('ustawienia-form');
+        const strefyInput = document.getElementById('preferowana_liczba_stref');
+        const sektoryInput = document.getElementById('preferowana_liczba_sektorow');
+        const stanowiskaInput = document.getElementById('maks_liczba_stanowisk_w_sektorze');
+        const turyInput = document.getElementById('liczba_tur');
+        const submitButton = document.getElementById('submit-button');
+
+        const strefyError = document.getElementById('strefy-error');
+        const sektoryError = document.getElementById('sektory-error');
+        const stanowiskaError = document.getElementById('stanowiska-error');
+        const turyError = document.getElementById('tury-error');
+
+        const maxZawodnikow = {{ max_zawodnikow }};
+
+        function validateForm() {
+            let isValid = true;
+            strefyError.textContent = '';
+            sektoryError.textContent = '';
+            stanowiskaError.textContent = '';
+            turyError.textContent = '';
+
+            const strefy = parseInt(strefyInput.value);
+            const sektory = parseInt(sektoryInput.value);
+            const stanowiska = parseInt(stanowiskaInput.value);
+            const tury = parseInt(turyInput.value);
+
+
+            if (isNaN(strefy) || strefy < 1 || strefy > parseInt(strefyInput.dataset.max)) {
+                strefyError.textContent = `Wprowadź liczbę od 1 do ${strefyInput.dataset.max}`;
+                isValid = false;
+            }
+            if (isNaN(sektory) || sektory < 1 || sektory > parseInt(sektoryInput.dataset.max)) {
+                sektoryError.textContent = `Wprowadź liczbę od 1 do ${sektoryInput.dataset.max}`;
+                isValid = false;
+            }
+
+            if (isNaN(stanowiska) || stanowiska < 1 || stanowiska > parseInt(stanowiskaInput.dataset.max)) {
+                stanowiskaError.textContent = `Wprowadź liczbę od 1 do ${stanowiskaInput.dataset.max}`;
+                isValid = false;
+            }
+            if (isNaN(tury) || tury < 1 || tury > parseInt(turyInput.dataset.max)) {
+                turyError.textContent = `Wprowadź liczbę od 1 do ${turyInput.dataset.max}`;
+                isValid = false;
+            }
+
+
+            const maksZaw = strefy * sektory * stanowiska;
+            if (maksZaw > maxZawodnikow) {
+                strefyError.textContent = `Maksymalna liczba zawodników (${maxZawodnikow}) przekroczona.`;
+                sektoryError.textContent = `Maksymalna liczba zawodników (${maxZawodnikow}) przekroczona.`;
+                stanowiskaError.textContent = `Maksymalna liczba zawodników (${maxZawodnikow}) przekroczona.`;
+                isValid = false;
+            }
+
+
+            submitButton.disabled = !isValid;
+        }
+
+
+        strefyInput.addEventListener('input', validateForm);
+        sektoryInput.addEventListener('input', validateForm);
+        stanowiskaInput.addEventListener('input', validateForm);
+        turyInput.addEventListener('input', validateForm);
+
+
+        validateForm(); // Sprawdź poprawność przy ładowaniu strony
+    });
+</script>
+
+<style>
+    .error-message {
+        color: red;
+        font-size: 0.8em;
+        margin-top: 5px;
+    }
+</style>
+{% endblock %}

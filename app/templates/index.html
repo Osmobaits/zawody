@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}Strona główna{% endblock %}
+
+{% block content %}
+    {# Użycie Bootstrap Hero dla lepszego wyglądu - Zmieniono lekko marginesy/padding #}
+    <div class="px-4 py-4 my-4 text-center bg-light rounded-3 shadow-sm">
+        <h1 class="display-5 fw-bold">System Obsługi Zawodów Wędkarskich</h1>
+        <div class="col-lg-8 mx-auto"> {# Zwiększono szerokość kolumny #}
+            <p class="lead mb-4">Witamy! Zarządzaj zawodami, losowaniem, wynikami i klasyfikacją.</p>
+
+            {% if current_user.is_authenticated %}
+                <div class="alert alert-secondary small" role="alert"> {# Zmieniono na secondary dla mniejszej jaskrawości #}
+                    Jesteś zalogowany jako: <strong>{{ current_user.username }}</strong> (Rola: {{ current_user.role | capitalize }})
+                </div>
+
+                {# Informacje o aktualnych zawodach i linki akcji #}
+                {% if zawody %} {# 'zawody' przekazane z trasy /index, jeśli wybrane #}
+                 <div class="card text-center mb-4 shadow-sm">
+                     <div class="card-header">
+                        <i class="bi bi-flag-fill me-1"></i> Aktywne Zawody
+                     </div>
+                     <div class="card-body">
+                        <h5 class="card-title">{{ zawody.nazwa }}</h5>
+                        <p class="card-text">Przejdź do szczegółów, publicznego podglądu lub zarządzaj aktywnymi zawodami.</p>
+                         <div class="d-grid gap-2 d-sm-flex justify-content-sm-center flex-wrap"> {# Flexbox dla przycisków #}
+                             <a href="{{ url_for('szczegoly_zawodow', zawody_id=zawody.id) }}" class="btn btn-primary btn-sm me-sm-2 mb-2 mb-sm-0"> {# btn-sm dla mniejszych przycisków #}
+                                <i class="bi bi-card-list"></i> Szczegóły Zawodów
+                             </a>
+                             <a href="{{ url_for('public_view', zawody_id=zawody.id) }}" class="btn btn-info btn-sm me-sm-2 mb-2 mb-sm-0" target="_blank">
+                                <i class="bi bi-eye"></i> Publiczny podgląd <i class="bi bi-box-arrow-up-right small"></i>
+                             </a>
+                              {# Szybkie linki do zarządzania AKTYWNYMI zawodami #}
+                              {% if current_user.role == 'admin' %}
+                                <a href="{{ url_for('ustawienia') }}" class="btn btn-outline-secondary btn-sm me-sm-2 mb-2 mb-sm-0"><i class="bi bi-gear"></i> Ustawienia</a>
+                                <a href="{{ url_for('zawodnicy') }}" class="btn btn-outline-secondary btn-sm me-sm-2 mb-2 mb-sm-0"><i class="bi bi-people"></i> Zawodnicy</a>
+                                <a href="{{ url_for('losowanie') }}" class="btn btn-outline-secondary btn-sm mb-2 mb-sm-0"><i class="bi bi-shuffle"></i> Losowanie</a>
+                              {% endif %}
+                               <a href="{{ url_for('wprowadz_wyniki') }}" class="btn btn-outline-success btn-sm me-sm-2 mb-2 mb-sm-0"><i class="bi bi-rulers"></i> Wyniki Wagowe</a>
+                               <a href="{{ url_for('wyniki_koncowe') }}" class="btn btn-outline-primary btn-sm mb-2 mb-sm-0"><i class="bi bi-trophy"></i> Klasyfikacja</a>
+                         </div>
+                     </div>
+                     <div class="card-footer text-muted small"> {# Zmniejszono czcionkę w stopce karty #}
+                        <a href="{{ url_for('zawody') }}">Zmień/Zarządzaj innymi zawodami</a>
+                     </div>
+                 </div>
+                {% else %}
+                    <div class="alert alert-warning" role="alert">
+                        <i class="bi bi-exclamation-triangle"></i> Nie wybrano żadnych aktywnych zawodów. <a href="{{ url_for('zawody') }}" class="alert-link">Wybierz lub utwórz zawody</a>, aby kontynuować.
+                    </div>
+                {% endif %}
+
+            {% else %}
+                <div class="alert alert-info" role="alert">
+                 Aby uzyskać dostęp do funkcji aplikacji, <a href="{{ url_for('login') }}" class="alert-link">zaloguj się</a>.
+                </div>
+                 {# Można dodać link do publicznego widoku np. ostatnich zawodów, jeśli zaimplementujesz taką logikę #}
+                 {# Przykład: Pobierz ostatnie zawody w trasie i przekaż ID #}
+                 {# {% if ostatnie_zawody_id %} #}
+                 {# <p><a href="{{ url_for('public_view', zawody_id=ostatnie_zawody_id) }}">Zobacz wyniki ostatnich zawodów (publicznie)</a></p> #}
+                 {# {% endif %} #}
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}

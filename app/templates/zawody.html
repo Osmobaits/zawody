@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block title %}Zarządzaj Zawodami{% endblock %}
+
+{% block content %}
+    {# Informacja o aktualnie wybranych zawodach - pozostaje na górze dla kontekstu #}
+    {% if zawody %}
+        <div class="alert alert-info alert-dismissible fade show shadow-sm" role="alert"> {# Dodano cień #}
+          <i class="bi bi-info-circle-fill me-1"></i> Aktualnie wybrane zawody: <strong>{{ zawody.nazwa }}</strong>
+           (<a href="{{ url_for('szczegoly_zawodow', zawody_id=zawody.id) }}" class="alert-link">Szczegóły</a> |
+           <a href="{{ url_for('public_view', zawody_id=zawody.id) }}" class="alert-link" target="_blank">Podgląd publiczny <i class="bi bi-box-arrow-up-right small"></i></a>)
+            <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                <span aria-hidden="true">×</span>
+            </button>
+        </div>
+    {% else %}
+         <div class="alert alert-warning alert-dismissible fade show shadow-sm" role="alert">
+          <i class="bi bi-exclamation-triangle-fill me-1"></i> Nie wybrano żadnych aktywnych zawodów. Wybierz z listy poniżej lub utwórz nowe (jeśli jesteś adminem).
+          <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+              <span aria-hidden="true">×</span>
+           </button>
+        </div>
+    {% endif %}
+
+    {# Sekcja dla Admina: Tworzenie / Wybór po nazwie #}
+    {% if current_user.role == 'admin' %}
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header">
+                 <i class="bi bi-pencil-square me-1"></i> Utwórz nowe / Wybierz istniejące zawody po nazwie
+            </div>
+            <div class="card-body">
+                <form method="POST" action="{{ url_for('zawody') }}">
+                    {{ form.hidden_tag() }}
+                     <div class="form-group mb-3">
+                        {{ form.nazwa.label(class="form-label fw-bold") }} {# Pogrubiono labelkę #}
+                        <div class="input-group"> {# Użyto input-group dla przycisku obok #}
+                            {{ form.nazwa(class="form-control" + (" is-invalid" if form.nazwa.errors else ""), placeholder="Wpisz nazwę zawodów...") }}
+                            <div class="input-group-append">
+                                <button type="submit" class="btn btn-success"><i class="bi bi-plus-circle me-1"></i> Utwórz / Wybierz</button>
+                            </div>
+                            {% if form.nazwa.errors %}
+                                <div class="invalid-feedback d-block"> {# Użyto d-block dla błędów pod input-group #}
+                                    {% for error in form.nazwa.errors %}<span>{{ error }}</span>{% endfor %}
+                                </div>
+                            {% endif %}
+                        </div>
+                        <small class="form-text text-muted mt-1">Wpisz nazwę istniejących zawodów, aby je wybrać, lub nową nazwę, aby je utworzyć.</small>
+                     </div>
+                </form>
+            </div>
+        </div>
+    {% endif %}
+
+    {# Lista wszystkich zawodów jako karty #}
+    <h3 class="mb-3"><i class="bi bi-list-ul me-1"></i> Wszystkie Dostępne Zawody</h3>
+    {% if wszystkie_zawody %}
+        <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4"> {# Układ kolumnowy dla kart #}
+            {% for z in wszystkie_zawody %}
+                <div class="col">
+                    {# Karta dla zawodów 'z'. Dodajemy specjalną ramkę, jeśli są aktywne #}
+                    <div class="card h-100 shadow-sm {{ 'border-primary border-2' if zawody and zawody.id == z.id else '' }}">
+                         {% if zawody and zawody.id == z.id %}
+                            <div class="card-header bg-primary text-white"> {# Nagłówek dla aktywnych #}
+                                <i class="bi bi-flag-fill me-1"></i> {{ z.nazwa }} (Aktywne)
+                            </div>
+                         {% else %}
+                             <div class="card-header">
+                                {{ z.nazwa }}
+                             </div>
+                         {% endif %}
+                        <div class="card-body d-flex flex-column"> {# Użyto flexbox dla wyrównania przycisków na dole #}
+                            <p class="card-text small text-muted mb-auto">ID: {{ z.id }}</p> {# Przykładowe info, można dodać datę itp. #}
+
+                            {# Przyciski akcji na dole karty #}
+                            <div class="mt-3">
+                                <div class="btn-group btn-group-sm me-1 mb-1" role="group"> {# Grupa Wybierz/Podgląd/Szczegóły #}
+                                    {# Przycisk Wybierz - tylko jeśli nie są aktywne #}
+                                    {% if not zawody or zawody.id != z.id %}
+                                    <form method="POST" action="{{ url_for('wybierz_zawody', zawody_id=z.id) }}" style="display: inline;">
+                                        <button type="submit" class="btn btn-outline-success" title="Ustaw jako aktywne"><i class="bi bi-check-circle"></i> Wybierz</button>
+                                    </form>
+                                    {% endif %}
+                                    <a href="{{ url_for('public_view', zawody_id=z.id) }}" class="btn btn-outline-info" title="Podgląd publiczny" target="_blank">
+                                        <i class="bi bi-eye"></i> Podgląd
+                                    </a>
+                                    <a href="{{ url_for('szczegoly_zawodow', zawody_id=z.id) }}" class="btn btn-outline-secondary" title="Szczegóły (dla zalogowanych)">
+                                        <i class="bi bi-card-list"></i> Szczegóły
+                                    </a>
+                                </div>
+                                {# Przycisk Usuń - tylko dla admina #}
+                                {% if current_user.role == 'admin' %}
+                                <div class="btn-group btn-group-sm mb-1" role="group">
+                                    <form method="POST" action="{{ url_for('usun_zawody') }}" style="display: inline;" onsubmit="return confirm('Czy na pewno chcesz usunąć zawody \'{{ z.nazwa | escape }}\' i wszystkie powiązane dane? Tej operacji nie można cofnąć!');">
+                                        <input type="hidden" name="zawody_id_do_usunięcia" value="{{ z.id }}">
+                                        <button type="submit" class="btn btn-outline-danger" title="Usuń zawody"><i class="bi bi-trash"></i> Usuń</button>
+                                    </form>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div> {# Koniec card-body #}
+                    </div> {# Koniec card #}
+                </div> {# Koniec col #}
+            {% endfor %}
+        </div> {# Koniec row #}
+    {% else %}
+        <div class="alert alert-secondary">Nie utworzono jeszcze żadnych zawodów.</div>
+         {% if current_user.role == 'admin' %}
+            <p>Możesz utworzyć pierwsze zawody używając formularza powyżej.</p>
+        {% endif %}
+    {% endif %}
+
+{% endblock %}

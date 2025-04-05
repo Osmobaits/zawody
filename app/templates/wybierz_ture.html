@@ -1,0 +1,24 @@
+{# Plik: templates/wybierz_ture.html #}
+{% extends "base.html" %}
+
+{% block title %}Wybierz turę{% endblock %}
+
+{% block content %}
+<h2>Wybierz turę do wprowadzenia wyników</h2>
+
+{# --- Użyj POST --- #}
+<form method="POST" action="{{ url_for('wprowadz_wyniki') }}">
+    {# Dodaj CSRF token, jeśli jest wymagany globalnie LUB przekaż obiekt 'form' z trasy #}
+    {# {{ form.hidden_tag() }} #}
+    {# --- Upewnij się, że name="tura" --- #}
+    <div class="form-group">
+        <label for="tura">Numer tury:</label>
+        <select name="tura" id="tura" class="form-control" style="width: auto;">
+            {% for tura_nr in range(1, liczba_tur + 1) %}
+                <option value="{{ tura_nr }}">Tura {{ tura_nr }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <button type="submit" class="btn btn-primary">Przejdź do wprowadzania wyników</button>
+</form>
+{% endblock %}

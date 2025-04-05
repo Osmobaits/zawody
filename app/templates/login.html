@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Logowanie{% endblock %}
+
+{% block content %}
+    <h2>Logowanie</h2>
+
+    <form method="POST" action="{{ url_for('login') }}">
+        {{ form.hidden_tag() }}
+        <div class="form-group">
+            {{ form.username.label }}
+            {{ form.username(class="form-control") }}
+        </div>
+        <div class="form-group">
+            {{ form.password.label }}
+            {{ form.password(class="form-control") }}
+        </div>
+        <div class="form-group">
+            {{ form.remember.label }}
+            {{ form.remember() }}
+        </div>
+        {{ form.submit(class="btn btn-primary") }}
+    </form>
+	<div class="border-top pt-3 mt-4">
+        <small class="text-muted">
+            <a href="{{ url_for('public_lista_zawodow') }}">Zobacz wyniki zawodów</a>
+        </small>
+    </div>
+{% endblock %}

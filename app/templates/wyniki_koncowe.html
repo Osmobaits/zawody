@@ -1,0 +1,121 @@
+{# Plik: templates/wyniki_koncowe.html #}
+{% extends "base.html" %}
+
+{% block title %}Wyniki Końcowe - {{ zawody.nazwa }}{% endblock %}
+
+{% block content %}
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap">
+        <h2>Klasyfikacja Końcowa (wg Punktów Sektorowych)</h2>
+        {# Zmienna 'zawody' jest przekazywana z Pythona (wcześniej competition_obj) #}
+        <h3 class="text-muted">{{ zawody.nazwa }}</h3>
+    </div>
+
+    {# Informacja o aktywnych turach #}
+    {% if rundy_aktywne is defined and rundy_aktywne %}
+    <div class="alert alert-info small" role="alert">
+        <i class="bi bi-info-circle-fill me-1"></i>
+        Klasyfikacja obliczona na podstawie wyników z tur:
+        <strong>{{ rundy_aktywne | join(', ') }}</strong>.
+        {% if ustawienia and rundy_aktywne|length < ustawienia.liczba_tur %}
+            (Pozostałe tury nie mają jeszcze wprowadzonych wyników).
+        {% endif %}
+    </div>
+    {% elif not wyniki_koncowe and (rundy_aktywne is defined and not rundy_aktywne) %}
+     <div class="alert alert-info" role="alert">
+         Nie wprowadzono jeszcze żadnych wyników wagowych. Klasyfikacja zostanie obliczona po wprowadzeniu danych.
+     </div>
+    {% endif %}
+
+    {# Komentarz DEBUG - można go usunąć #}
+    <!-- DEBUG: Length={{ wyniki_koncowe|length }} | Data Preview (first item if exists): {{ wyniki_koncowe[0] if wyniki_koncowe }} -->
+
+    {# Główny warunek wyświetlania tabeli - bez zmian #}
+    {% if wyniki_koncowe is defined and wyniki_koncowe|length > 0 %}
+        <div class="table-responsive shadow-sm">
+            {# Tabela nadal ma table-bordered #}
+            {# Usunięto table-striped/hover stąd, bo są w tbody #}
+            <table class="table table-bordered table-sm mb-0">
+                {# Nagłówek bez specjalnych klas tła #}
+                <thead>
+                    <tr>
+                        {# Komórki nagłówka z żółtym tłem i stylami #}
+                        <th scope="col" class="text-center align-middle fw-bold bg-warning text-dark">Msc.</th>
+                        <th scope="col" class="text-center align-middle fw-bold bg-warning text-dark">Zawodnik</th>
+                        <th scope="col" class="text-center align-middle fw-bold bg-warning text-dark">Suma Pkt Sektor. <i class="bi bi-arrow-down small"></i></th>
+                        <th scope="col" class="text-end align-middle fw-bold bg-warning text-dark">Suma Wagi (g) <i class="bi bi-arrow-up small"></i></th>
+                        <th scope="col" class="text-end align-middle fw-bold bg-warning text-dark">Max Big Fish (g) <i class="bi bi-arrow-up small"></i></th>
+                        {# Dynamiczne nagłówki tylko dla AKTYWNYCH tur #}
+                        {% if rundy_aktywne %}
+                            {% for t in rundy_aktywne %}
+                                <th scope="col" class="text-center align-middle fw-bold bg-warning text-dark">T{{t}} Pkt</th>
+                                <th scope="col" class="text-end align-middle fw-bold bg-warning text-dark">T{{t}} Waga (∑)</th>
+                            {% endfor %}
+                        {% endif %}
+                    </tr>
+                </thead>
+                 {# Zebra i hover stosowane do tbody #}
+                <tbody class="table-striped table-hover">
+                    {% for wynik in wyniki_koncowe %}
+                    {# Usunięto wyróżnianie Top 3 #}
+                    <tr>
+                        <td class="text-center fw-bold align-middle">{{ wynik.miejsce }}</td>
+                        <td class="align-middle"><strong>{{ wynik.imie_nazwisko }}</strong></td>
+                        <td class="text-center fw-bold align-middle">{{ "%.1f" | format(wynik.total_points) }}</td>
+                        <td class="text-end align-middle">{{ wynik.total_waga }} g</td>
+                        <td class="text-end align-middle">{{ wynik.max_bigfish }} g</td>
+                        {# Dynamiczne komórki tylko dla AKTYWNYCH tur #}
+                        {% if rundy_aktywne %}
+                             {% for t in rundy_aktywne %}
+                                {% set dane_tury = wynik.tury_data.get(t, {}) %}
+                                {% set pkt_tura = dane_tury.get('punkty', None) %}
+                                <td class="text-center align-middle">{{ "%.1f" | format(pkt_tura) if pkt_tura is not none else '-' }}</td>
+
+                                {% set waga_tura = dane_tury.get('waga', None) %}
+                                {% set bf_tura = dane_tury.get('bigfish', None) %}
+                                {% if waga_tura is number and bf_tura is number %}
+                                    <td class="text-end align-middle">{{ waga_tura + bf_tura }}</td>
+                                {% elif waga_tura is number %}
+                                    <td class="text-end align-middle">{{ waga_tura }}</td>
+                                {% elif bf_tura is number %}
+                                    <td class="text-end align-middle">{{ bf_tura }}</td>
+                                {% else %}
+                                    <td class="text-end align-middle">-</td>
+                                {% endif %}
+                             {% endfor %}
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+         {# Opis sortowania - bez zmian #}
+         <p class="small text-muted mt-2">
+            <i class="bi bi-info-circle me-1"></i>
+            Sortowanie: 1. Suma punktów sektorowych (im mniej <i class="bi bi-arrow-down small"></i>, tym lepiej), 2. Suma wagi (Waga+BF) (im więcej <i class="bi bi-arrow-up small"></i>, tym lepiej), 3. Max Big Fish (im więcej <i class="bi bi-arrow-up small"></i>, tym lepiej), 4. Nazwisko (alfabetycznie). Punkty i wagi liczone tylko z aktywnych tur. Waga w kolumnach T1(∑), T2(∑)... pokazuje sumę wartości wpisanych w pola "Waga (g)" i "Big Fish (g)" dla danej tury.
+         </p>
+    {# Obsługa przypadków, gdy lista jest pusta - bez zmian #}
+    {% elif not rundy_aktywne %}
+         <div class="alert alert-info" role="alert">
+             Nie wprowadzono jeszcze żadnych wyników wagowych. Klasyfikacja zostanie obliczona po wprowadzeniu danych.
+         </div>
+    {% else %}
+        <div class="alert alert-warning" role="alert">
+            Brak danych do wyświetlenia klasyfikacji. Sprawdź, czy są zapisani zawodnicy i czy wprowadzono wyniki wagowe.
+        </div>
+    {% endif %}
+
+
+    <div class="mt-4">
+        {# Przyciski - bez zmian #}
+        <a href="{{ url_for('index') }}" class="btn btn-secondary">
+            <i class="bi bi-arrow-left-circle me-1"></i> Powrót do strony głównej
+        </a>
+         <a href="{{ url_for('szczegoly_zawodow', zawody_id=zawody.id) }}" class="btn btn-info">
+            <i class="bi bi-card-list me-1"></i> Pełne Szczegóły Zawodów
+        </a>
+        <a href="{{ url_for('wprowadz_wyniki') }}" class="btn btn-outline-primary">
+            <i class="bi bi-input-cursor-text me-1"></i> Wróć do Wprowadzania Wyników
+        </a>
+    </div>
+
+{% endblock %}

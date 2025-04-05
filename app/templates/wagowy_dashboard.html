@@ -1,0 +1,57 @@
+{% extends "base.html" %} {# Zakładamy, że base.html ma responsywną nawigację #}
+
+{% block title %}Panel Wagowego{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2 class="mb-4"><i class="bi bi-rulers me-2"></i> Panel Wagowego</h2>
+
+    {# Informacja o aktywnych zawodach #}
+    {% if zawody %}
+        <div class="alert alert-success shadow-sm" role="alert">
+            <h4 class="alert-heading">Aktywne Zawody: {{ zawody.nazwa }}</h4>
+            <p class="mb-0">Wybierz turę, aby wprowadzić lub edytować wyniki.</p>
+        </div>
+
+        {# Sekcja wprowadzania wyników #}
+        <h3 class="mt-5 mb-3">Wprowadź wyniki dla tury:</h3>
+        {% if liczba_tur > 0 %}
+            <div class="list-group shadow-sm">
+                {% for t in range(1, liczba_tur + 1) %}
+                    <a href="{{ url_for('wprowadz_wyniki', tura=t) }}" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="fw-bold fs-5">Tura {{ t }}</span> {# Większa czcionka #}
+                            {% if t in aktywne_tury %}
+                                <span class="badge bg-success ms-2">Wyniki częściowo/całkowicie wprowadzone</span>
+                            {% else %}
+                                <span class="badge bg-warning text-dark ms-2">Oczekuje na wyniki</span>
+                            {% endif %}
+                        </div>
+                        <i class="bi bi-pencil-square fs-4"></i> {# Większa ikona #}
+                    </a>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="alert alert-warning">Brak zdefiniowanych tur dla tych zawodów w ustawieniach.</div>
+        {% endif %}
+
+        {# Szybkie linki do podglądu #}
+        <h3 class="mt-5 mb-3">Podgląd:</h3>
+        <div class="d-grid gap-2 d-md-block"> {# Przyciski w pionie na małych ekranach #}
+             <a href="{{ url_for('wyniki_losowania') }}" class="btn btn-outline-secondary mb-2"><i class="bi bi-card-list me-1"></i> Zobacz Listę Startową / Losowanie</a>
+             <a href="{{ url_for('wyniki_koncowe') }}" class="btn btn-outline-primary mb-2"><i class="bi bi-trophy me-1"></i> Zobacz Aktualną Klasyfikację</a>
+             <a href="{{ url_for('public_view', zawody_id=zawody.id) }}" class="btn btn-outline-info mb-2" target="_blank"><i class="bi bi-eye me-1"></i> Otwórz Podgląd Publiczny <i class="bi bi-box-arrow-up-right small"></i></a>
+        </div>
+
+    {% else %}
+        {# Komunikat, gdy żadne zawody nie są wybrane #}
+        <div class="alert alert-warning" role="alert">
+            <h4 class="alert-heading">Brak aktywnych zawodów!</h4>
+            <p>Nie wybrano żadnych aktywnych zawodów w systemie.</p>
+            <hr>
+            <p class="mb-0">Jeśli jesteś administratorem, przejdź do <a href="{{ url_for('zawody') }}" class="alert-link">Zarządzania Zawodami</a>, aby wybrać lub utworzyć zawody. Jeśli jesteś wagowym, skontaktuj się z administratorem.</p>
+        </div>
+    {% endif %}
+
+</div>
+{% endblock %}

@@ -1,0 +1,98 @@
+{# Plik: templates/szczegoly_zawodow.html #}
+{% extends "base.html" %}
+
+{% block title %}Szczegóły: {{ zawody.nazwa }}{% endblock %}
+
+{% block content %}
+    <h2>Szczegóły zawodów: {{ zawody.nazwa }}</h2>
+    <hr>
+
+    {# Sekcja Ustawień #}
+    <h3>Ustawienia</h3>
+    {% if ustawienia %}
+        <ul>
+            <li>Liczba tur: {{ ustawienia.liczba_tur }}</li>
+            <li>Liczba stref: {{ ustawienia.preferowana_liczba_stref }}</li>
+            <li>Sektorów / strefę: {{ ustawienia.preferowana_liczba_sektorow }}</li>
+            <li>Max. stanowisk / sektor: {{ ustawienia.maks_liczba_stanowisk_w_sektorze }}</li>
+            <li>Całkowita pojemność: {{ ustawienia.preferowana_liczba_stref * ustawienia.preferowana_liczba_sektorow * ustawienia.maks_liczba_stanowisk_w_sektorze }}</li>
+        </ul>
+    {% else %}
+        <p class="text-muted">Brak zdefiniowanych ustawień dla tych zawodów. <a href="{{ url_for('ustawienia') }}">Przejdź do ustawień</a>.</p>
+    {% endif %}
+    <hr>
+
+    {# Sekcja Zawodników #}
+    <h3>Zawodnicy ({{ zawodnicy|length }})</h3>
+    {% if zawodnicy %}
+        <ul class="list-group list-group-flush">
+            {% for zawodnik in zawodnicy %}
+                <li class="list-group-item">
+                    {% if zawodnik.is_puste_miejsce %}
+                        <i>Puste miejsce</i>
+                    {% else %}
+                        {{ zawodnik.imie_nazwisko }}
+                    {% endif %}
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p class="text-muted">Brak zawodników przypisanych do tych zawodów. <a href="{{ url_for('zawodnicy') }}">Dodaj zawodników</a>.</p>
+    {% endif %}
+    <hr>
+
+    {# Sekcja Wyników Losowania #}
+    <h3>Wyniki Losowania</h3>
+    {% if wyniki %}
+        <div class="table-responsive"> {# Dodano responsywność tabeli #}
+            <table class="table table-sm table-striped table-bordered">
+                <thead>
+                    <tr>
+                        <th>Nr</th>
+                        <th>Zawodnik</th>
+                        {% if ustawienia %}
+                            {% for tura in range(1, ustawienia.liczba_tur + 1) %}
+                                <th class="text-center">T{{ tura }} Strefa</th>
+                                <th class="text-center">T{{ tura }} Sektor</th>
+                                <th class="text-center">T{{ tura }} Stan.</th>
+                            {% endfor %}
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for wynik in wyniki %}
+                      <tr>
+                        <td>{{ loop.index }}</td>
+                        <td>
+                        {% if wynik.zawodnik %}
+                            {% if wynik.zawodnik.is_puste_miejsce %}
+                                <i>Puste miejsce</i>
+                            {% else %}
+                                {{ wynik.zawodnik.imie_nazwisko }}
+                            {% endif %}
+                        {% else %}
+                             <span class="text-danger">Brak zawodnika!</span>
+                        {% endif %}
+                        </td>
+                        {% if ustawienia %}
+                            {% for tura in range(1, ustawienia.liczba_tur + 1) %}
+                                <td class="text-center">{{ wynik['tura' ~ tura ~ '_strefa'] | default('?', true) }}</td>
+                                <td class="text-center">{{ wynik['tura' ~ tura ~ '_sektor'] | default('?', true) }}</td>
+                                <td class="text-center">{{ wynik['tura' ~ tura ~ '_stanowisko'] | default('?', true) }}</td>
+                            {% endfor %}
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <p class="text-muted">Brak wyników losowania dla tych zawodów. <a href="{{ url_for('losowanie') }}">Przejdź do losowania</a>.</p>
+    {% endif %}
+
+    {# Tutaj można dodać sekcję z wynikami wagowymi, jeśli będą pobierane #}
+
+    <hr>
+    <a href="{{ url_for('zawody') }}" class="btn btn-secondary">Powrót do zarządzania zawodami</a>
+
+{% endblock %}
