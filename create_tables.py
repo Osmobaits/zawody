@@ -6,8 +6,8 @@ from app import app, db, bcrypt
 from app import models # Upewnij się, że wszystkie modele są zaimportowane
 
 # --- Konfiguracja Danych Admina ---
-ADMIN_USERNAME = 'admin'
-ADMIN_PASSWORD = 'TwojeBardzoSilneHaslo123!' # ZMIEŃ NA BEZPIECZNE HASŁO!
+ADMIN_USERNAME = 'Radek'
+ADMIN_PASSWORD = 'Zawody22' # ZMIEŃ NA BEZPIECZNE HASŁO!
 # Lub odczyt ze zmiennej środowiskowej
 # ADMIN_PASSWORD = os.environ.get('INITIAL_ADMIN_PASSWORD')
 # if not ADMIN_PASSWORD: sys.exit("!!! BŁĄD: Brak hasła admina w INITIAL_ADMIN_PASSWORD")
