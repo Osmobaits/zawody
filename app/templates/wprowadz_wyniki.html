@@ -3,7 +3,7 @@
 
 {% block title %}Wprowadź wyniki (Tura {{ tura }}){% endblock %}
 
-{% block content %} {# Początek głównego bloku content #}
+{% block content %}
     <h2 class="mb-4">Wprowadź wyniki <span class="text-muted fs-4">- Tura {{ tura }}</span></h2>
 
     {# Wyświetlanie ogólnych błędów formularza (np. CSRF), jeśli istnieją #}
@@ -23,139 +23,141 @@
                     {% endfor %}
                 </ul>
                 <small>Spróbuj odświeżyć stronę i przesłać formularz ponownie.</small>
-                <button type="button" class="close" data-dismiss="alert" aria-label="Close"> {# Użyto Bootstrap 4 close #}
+                <button type="button" class="close" data-dismiss="alert" aria-label="Close">
                     <span aria-hidden="true">×</span>
                 </button>
             </div>
         {% endif %}
     {% endif %}
 
-    {# === POCZĄTEK LOGIKI WYŚWIETLANIA SEKTORÓW === #}
-    {% if wyniki_losowania %}
-        {# Grupowanie i sortowanie sektorów #}
+    <form method="POST" action="{{ url_for('wprowadz_wyniki', tura=tura) }}">
+        {{ form.hidden_tag() }} {# CSRF Token #}
+
         {% set group_attr = 'tura' ~ tura ~ '_sektor' %}
         {% set wyniki_pogrupowane = wyniki_losowania | groupby(group_attr) %}
         {% set wyniki_posortowane_grupy = wyniki_pogrupowane | sort(attribute='grouper', case_sensitive=False) %}
 
-        {# Iteracja po posortowanych sektorach #}
-        {% for sektor, wyniki_sektora_grupa in wyniki_posortowane_grupy %}
-            {# === Początek Formularza dla Pojedynczego Sektora === #}
-            {# Używamy ID sektora w URL akcji dla łatwiejszej identyfikacji w trasie. #}
-            {# '_NONE_' jest używane, jeśli sektor jest None/pusty (nieprzypisani zawodnicy). #}
-            <form method="POST" action="{{ url_for('wprowadz_wyniki', tura=tura, sektor=sektor if sektor else '_NONE_') }}">
-                 {# CSRF Token - WAŻNE! Musi być w każdym formularzu. #}
-                 {# form.hidden_tag() generuje wszystkie ukryte pola, w tym CSRF. #}
-                 {{ form.hidden_tag() if form }}
-                 {# Jeśli form nie jest przekazany, można spróbować globalnego tokenu, ale hidden_tag() jest lepsze. #}
-                 {# {% if not form %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endif %} #}
-
-                {# Karta dla sektora z ID do potencjalnego przewijania #}
-                <div class="card shadow-sm mb-4" id="sektor-{{ sektor if sektor else 'bezsektora' }}">
-                    {# Nagłówek karty - tylko nazwa sektora #}
+        {% if wyniki_losowania %}
+            {% for sektor, wyniki_sektora_grupa in wyniki_posortowane_grupy %}
+                <div class="card shadow-sm mb-4">
                     <div class="card-header">
                         Sektor {{ sektor if sektor else 'Nieprzypisany' }}
                     </div>
-                    {# Ciało karty bez wewnętrznego paddingu #}
                     <div class="card-body p-0">
                         {% set zawodnicy_w_sektorze = wyniki_sektora_grupa | list %}
                         <div class="table-responsive">
-                            <table class="table table-striped table-bordered table-hover table-sm mb-0"> {# table-sm dla kompaktowości #}
-                                <thead class="thead-light"> {# Jaśniejszy nagłówek #}
+                            <table class="table table-striped table-bordered table-hover table-sm mb-0">
+                                <thead class="thead-light">
                                     <tr>
-                                        {# Kolumny tabeli #}
-                                        <th class="text-center align-middle d-none d-sm-table-cell" style="width: 10%;">Stan.</th> {# Ukryte na xs #}
+                                        <th class="text-center align-middle d-none d-sm-table-cell" style="width: 10%;">Stanowisko</th>
                                         <th class="align-middle">Zawodnik</th>
                                         <th class="text-center align-middle" style="width: 25%;">Waga (g)</th>
                                         <th class="text-center align-middle" style="width: 25%;">Big Fish (g)</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {% for wynik in zawodnicy_w_sektorze %} {# Pętla po zawodnikach w tym sektorze #}
-                                        <tr class="{{ 'table-light text-muted' if wynik.zawodnik and wynik.zawodnik.is_puste_miejsce else '' }}"> {# Styl dla pustych miejsc #}
-                                            {# Komórka Stanowisko #}
+                                    {% for wynik in zawodnicy_w_sektorze %}
+                                        <tr class="{{ 'table-light text-muted' if wynik.zawodnik and wynik.zawodnik.is_puste_miejsce else '' }}">
                                             <td class="text-center fw-bold align-middle d-none d-sm-table-cell">
                                                 {{ wynik['tura' ~ tura ~ '_stanowisko'] | default('?', true) }}
                                             </td>
-                                            {# Komórka Zawodnik #}
                                             <td class="align-middle">
-                                                {# Wyświetlanie stanowiska przed nazwiskiem na małych ekranach #}
                                                 <span class="fw-bold d-inline d-sm-none">{{ wynik['tura' ~ tura ~ '_stanowisko'] | default('?', true) }}. </span>
-                                                {# Wyświetlanie nazwy lub "Puste miejsce" #}
                                                 {% if wynik.zawodnik %}
-                                                    {% if wynik.zawodnik.is_puste_miejsce %}<i>Puste miejsce</i>{% else %}{{ wynik.zawodnik.imie_nazwisko }}{% endif %}
-                                                {% else %}<span class="text-danger fw-bold">BŁĄD</span>{% endif %}
+                                                    {% if wynik.zawodnik.is_puste_miejsce %}
+                                                        <i>Puste miejsce</i>
+                                                    {% else %}
+                                                        {{ wynik.zawodnik.imie_nazwisko }}
+                                                    {% endif %}
+                                                {% else %}
+                                                    <span class="text-danger fw-bold">BŁĄD DANYCH</span>
+                                                {% endif %}
                                             </td>
 
-                                            {# Komórki Waga i Big Fish (tylko dla rzeczywistych zawodników) #}
+                                            {# Pola Waga i Big Fish #}
                                             {% if wynik.zawodnik and not wynik.zawodnik.is_puste_miejsce %}
                                                 {% set zawodnik_id = wynik.zawodnik.id %}
                                                 {% if zawodnik_id is not none %}
                                                     {% set field_name_waga = 'zawodnik_' ~ zawodnik_id|string ~ '_tura' ~ tura|string + '_waga' %}
                                                     {% set field_name_bigfish = 'zawodnik_' ~ zawodnik_id|string ~ '_tura' ~ tura|string + '_bigfish' %}
+
                                                     {# Komórka Wagi #}
                                                     <td class="align-middle">
                                                         {% if field_name_waga in form %}
                                                             {% set field = form[field_name_waga] %}
+                                                            {# === POPRAWKA: Użyto class_ zamiast class === #}
                                                             {{ field(class_="form-control" + (" is-invalid" if field.errors else ""), type="tel", pattern="[0-9]*", inputmode="numeric", min="0", placeholder="gramy") }}
-                                                            {# Wyświetlanie błędów dla tego pola #}
                                                             {% if field.errors %}
-                                                            <div class="invalid-feedback" style="display: block; font-size: 0.8em;">{% for error in field.errors %}{{ error }}{% endfor %}</div>
+                                                            <div class="invalid-feedback" style="display: block; font-size: 0.8em;">
+                                                                {% for error in field.errors %}{{ error }}{% endfor %}
+                                                            </div>
                                                             {% endif %}
                                                         {% else %}
-                                                            <span class="text-danger small d-block text-center">Błąd pola!</span> {# Komunikat jeśli pole nie istnieje w form #}
+                                                            <span class="text-danger small d-block text-center">Błąd pola!</span>
                                                         {% endif %}
                                                     </td>
                                                     {# Komórka Big Fish #}
                                                     <td class="align-middle">
                                                          {% if field_name_bigfish in form %}
                                                             {% set field = form[field_name_bigfish] %}
+                                                            {# === POPRAWKA: Użyto class_ zamiast class === #}
                                                             {{ field(class_="form-control" + (" is-invalid" if field.errors else ""), type="tel", pattern="[0-9]*", inputmode="numeric", min="0", placeholder="gramy") }}
                                                              {% if field.errors %}
-                                                            <div class="invalid-feedback" style="display: block; font-size: 0.8em;">{% for error in field.errors %}{{ error }}{% endfor %}</div>
+                                                            <div class="invalid-feedback" style="display: block; font-size: 0.8em;">
+                                                                {% for error in field.errors %}{{ error }}{% endfor %}
+                                                            </div>
                                                             {% endif %}
                                                         {% else %}
                                                             <span class="text-danger small d-block text-center">Błąd pola!</span>
                                                         {% endif %}
                                                     </td>
                                                 {% else %}
-                                                     {# Błąd, jeśli zawodnik nie ma ID #}
                                                      <td colspan="2" class="text-center text-danger small fst-italic align-middle">Błąd ID zawodnika</td>
-                                                {% endif %} {# Koniec if zawodnik_id #}
+                                                {% endif %}
                                             {% else %}
-                                                {# Puste komórki dla pustych miejsc #}
                                                 <td class="text-center align-middle">-</td>
                                                 <td class="text-center align-middle">-</td>
-                                            {% endif %} {# Koniec if zawodnik rzeczywisty #}
+                                            {% endif %}
                                         </tr>
-                                    {% endfor %} {# Koniec pętli po zawodnikach w sektorze #}
+                                    {% endfor %}
                                 </tbody>
                             </table>
-                        </div> {# Koniec table-responsive #}
-                    </div> {# Koniec card-body #}
-                    {# Stopka karty z przyciskiem zapisu dla tego sektora #}
-                     <div class="card-footer text-end">
-                        <button type="submit" class="btn btn-success btn-sm"><i class="bi bi-save me-1"></i> Zapisz Sektor {{ sektor if sektor else 'Nieprzypisany' }}</button>
+                        </div>
                     </div>
-                </div> {# Koniec card #}
-            </form> {# === Koniec Formularza dla Pojedynczego Sektora === #}
-        {% endfor %} {# Koniec pętli po sektorach #}
+                </div>
+            {% endfor %}
+        {% else %}
+             <div class="alert alert-warning">
+                 Brak danych losowania do wyświetlenia dla tury {{ tura }}.
+                 Sprawdź <a href="{{ url_for('wyniki_losowania') }}" class="alert-link">Wyniki Losowania</a>.
+             </div>
+        {% endif %}
 
-    {% else %} {# Jeśli nie ma wyników losowania #}
-         <div class="alert alert-warning">Brak danych losowania do wyświetlenia dla tury {{ tura }}.</div>
-    {% endif %} {# Koniec if wyniki_losowania #}
-    {# === KONIEC LOGIKI WYŚWIETLANIA SEKTORÓW === #}
-
-    {# Link powrotny #}
-    <div class="mt-4">
-         {% if current_user.is_authenticated %}
-            {% if current_user.role == 'wagowy' %}
-                <a href="{{ url_for('wagowy_dashboard') }}" class="btn btn-secondary"> <i class="bi bi-arrow-left-circle me-1"></i> Powrót do Panelu Wagowego </a>
-            {% elif current_user.role == 'admin' %}
-                 <a href="{{ url_for('index') }}" class="btn btn-secondary"> <i class="bi bi-arrow-left-circle me-1"></i> Powrót do Strony Głównej </a>
-            {% else %} {# Domyślny powrót #}
-                 <a href="{{ url_for('index') }}" class="btn btn-secondary"> <i class="bi bi-arrow-left-circle me-1"></i> Powrót </a>
+        {# Przyciski na dole formularza #}
+        <div class="mt-4">
+            {% if wyniki_losowania %}
+                <button type="submit" class="btn btn-primary btn-lg btn-block mb-2">
+                    <i class="bi bi-save me-1"></i> Zapisz wyniki tury {{ tura }}
+                </button>
             {% endif %}
-         {% endif %}
-     </div>
 
-{% endblock %} {# Koniec bloku content #}
+            {# WARUNKOWY LINK POWROTNY #}
+            {% if current_user.is_authenticated %}
+                {% if current_user.role == 'wagowy' %}
+                    <a href="{{ url_for('wagowy_dashboard') }}" class="btn btn-secondary btn-lg btn-block">
+                        <i class="bi bi-arrow-left-circle me-1"></i> Powrót do Panelu Wagowego
+                    </a>
+                {% elif current_user.role == 'admin' %}
+                     <a href="{{ url_for('index') }}" class="btn btn-secondary btn-lg btn-block">
+                         <i class="bi bi-arrow-left-circle me-1"></i> Powrót do Strony Głównej
+                     </a>
+                {% else %}
+                     <a href="{{ url_for('index') }}" class="btn btn-secondary btn-lg btn-block">
+                         <i class="bi bi-arrow-left-circle me-1"></i> Powrót
+                     </a>
+                {% endif %}
+            {% endif %}
+        </div>
+    </form>
+
+{% endblock %}
