@@ -1,4 +1,4 @@
-{# Plik: templates/base.html (Wersja bez nagłówka i bez górnego menu) #}
+{# Plik: templates/base.html (Kompletny, bez nagłówka/menu, bez błędnego importu) #}
 
 <!DOCTYPE html>
 <html lang="pl">
@@ -7,29 +7,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no">
     <title>{% block title %}Zawody Wędkarskie{% endblock %} - System</title>
 
-    <!-- Bootstrap CSS (Wersja 4.5.2) -->
+    <!-- Bootstrap CSS (Wersja 4.5.2 - zgodnie z Twoim kodem) -->
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" integrity="sha384-JcKb8q3iqJ61gNV9KGb8thSsNjpSL0n8PARn9HuZOnIxN0hoP+VmmDGMN5t9UJ0Z" crossorigin="anonymous">
     <!-- Bootstrap Icons CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <!-- Twój własny plik CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-    {# Usunięto wewnętrzne style dla menu, bo menu zostało usunięte #}
-
+    {# Blok na dodatkowe style lub skrypty w sekcji <head> #}
     {% block extra_head %}{% endblock %}
 </head>
 <body>
-    {# === USUNIĘTO GÓRNY KONTENER I NAGŁÓWEK === #}
-    {# Kontener zostanie dodany w szablonach dziedziczących, np. index.html #}
-
-    {# Główna zawartość strony dziedziczącej - teraz bezpośrednio w body #}
-    {# Dodajemy kontener tutaj, aby obejmował flash messages i content, ale strony mogą go nadpisać #}
-    <div class="container mt-3"> {# Dodano kontener i margines górny #}
+    {# Główny kontener dla zawartości i komunikatów flash #}
+    {# Strony dziedziczące mogą dodać własne kontenery, jeśli potrzebują innego układu #}
+    <div class="container mt-3"> {# Standardowy kontener z marginesem górnym #}
         <main role="main">
-            {# Wyświetlanie komunikatów Flash #}
+            {# Wyświetlanie komunikatów Flash na górze strony #}
             {% with messages = get_flashed_messages(with_categories=true) %}
                 {% if messages %}
                     {% for category, message in messages %}
+                        {# Użycie składni alertów Bootstrap 4 #}
                         <div class="alert alert-{{ category if category in ['primary', 'secondary', 'success', 'danger', 'warning', 'info', 'light', 'dark'] else 'info' }} alert-dismissible fade show" role="alert">
                             {{ message }}
                             <button type="button" class="close" data-dismiss="alert" aria-label="Close">
@@ -40,43 +37,24 @@
                 {% endif %}
             {% endwith %}
 
-            {# Blok content wewnątrz kontenera #}
+            {# Główna zawartość strony dziedziczącej #}
             {% block content %}{% endblock %}
         </main>
-    </div> {# Koniec kontenera dla main #}
+    </div> {# Koniec głównego kontenera #}
 
-    {# Stopka poza głównym kontenerem lub wewnątrz, zależnie od preferencji #}
-    <footer class="mt-4 text-center text-muted small container"> {# Dodano klasę container do stopki #}
+    {# Stopka aplikacji #}
+    <footer class="mt-4 text-center text-muted small container"> {# Użyto klasy container dla ograniczenia szerokości stopki #}
         <hr>
-        {# Użycie zmiennej 'current_year' dostarczonej przez context processor #}
-        {# Dodano fallback na datetime.now().year jeśli context processor nie działa #}
-        © {% if current_year %}{{ current_year }}{% else %}{{ datetime.now().year }}{% endif %} Zawody Wędkarskie - System
-         | <a href="{{ url_for('public_lista_zawodow') }}" class="text-muted">Wyniki publiczne</a> {# Dodano link w stopce #}
+        {# Wyświetlanie roku - polega na context_processor 'inject_current_year' z app/__init__.py #}
+        © {% if current_year %}{{ current_year }}{% else %}<!-- Rok? -->{% endif %} Zawody Wędkarskie - System
+         | <a href="{{ url_for('public_lista_zawodow') }}" class="text-muted">Wyniki publiczne</a> {# Link do wyników publicznych #}
     </footer>
 
     <!-- Bootstrap JS, Popper.js, and jQuery (Wersja 4.5.2) -->
+    {# Umieszczone na końcu body dla szybszego ładowania strony #}
     <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js" integrity="sha384-DfXdz2htPH0lsSSs5nCTpuj/zy4C+OGpamoFVy38MVBnE+IbbVYUew+OrCXaRkfj" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js" integrity="sha384-9/reFTGAW83EW2RDu2S0VKaIzap3H66lZH81PoYlFhbGU+6BZp6G7niu735Sk7lN" crossorigin="anonymous"></script>
     <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js" integrity="sha384-B4gt1jrGC7Jh4AgTPSdUtOBvfO8shuf57BaghqFfPlYxofvL8/KUEfYiJOMMV+rV" crossorigin="anonymous"></script>
-
-    {# Import datetime do stopki, jeśli context_processor nie działa #}
-    {# Ten import musi być zdefiniowany w app/__init__.py przez context_processor #}
-    {# Alternatywnie, można by użyć JavaScript do wstawienia roku #}
-    {% if not current_year %}
-        <script>
-            // Prosty fallback JS, jeśli 'current_year' nie jest dostępny z serwera
-            // (Nie jest to idealne rozwiązanie, lepiej mieć context_processor)
-            // Można rozważyć usunięcie tego i poleganie na context_processor
-            // document.addEventListener('DOMContentLoaded', function() {
-            //      const footer = document.querySelector('footer');
-            //      if (footer) {
-            //           footer.innerHTML = footer.innerHTML.replace(' Zawody', new Date().getFullYear() + ' Zawody');
-            //      }
-            // });
-        </script>
-         {% import datetime %} {# To nie zadziała w Jinja - dostęp do modułów Pythona jest ograniczony #}
-    {% endif %}
-
 
     {# Blok na dodatkowe skrypty JS w stronach dziedziczących #}
     {% block extra_scripts %}{% endblock %}
