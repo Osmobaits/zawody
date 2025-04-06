@@ -1,153 +1,109 @@
-{# File: templates/index.html #}
+{# File: templates/index.html (Zmodyfikowany kafelek Wyloguj) #}
 {% extends "base.html" %}
 
-{% block title %}Strona główna{% endblock %}
+{% block title %}Panel Główny{% endblock %} {# Zmieniono tytuł #}
 
 {% block content %}
-    {# Użyto komponentu Hero Bootstrapa dla górnej części #}
-    <div class="px-4 py-4 my-4 text-center bg-light rounded-3 shadow-sm">
-        <h1 class="display-5 fw-bold">System Obsługi Zawodów Wędkarskich</h1>
-        <div class="col-lg-8 mx-auto">
-            <p class="lead mb-4">Witamy! Zarządzaj zawodami, losowaniem, wynikami i klasyfikacją.</p>
+    {# Użyto container-fluid dla pełnej szerokości tła, a container dla zawartości #}
+    <div class="bg-light py-4 mb-4"> {# Jasne tło dla górnej sekcji #}
+        <div class="container text-center">
+             <h1 class="display-5 fw-bold">Panel Zarządzania</h1>
+             <p class="lead mb-0">Witamy{% if current_user.is_authenticated %} {{ current_user.username }}{% endif %}!</p>
+        </div>
+    </div>
 
-            {# Informacja o zalogowanym użytkowniku #}
+    <div class="container"> {# Główny kontener dla reszty zawartości #}
+
+            {# Sekcja tylko dla zalogowanych #}
             {% if current_user.is_authenticated %}
-                <div class="alert alert-secondary small" role="alert">
-                    Jesteś zalogowany jako: <strong>{{ current_user.username }}</strong> (Rola: {{ current_user.role | capitalize }})
-                </div>
 
-                {# Sekcja dla aktywnych zawodów - ZMIANA WYGLĄDU LINKÓW #}
-                {% if zawody %} {# 'zawody' przekazane z trasy /index #}
+                {# Sekcja dla aktywnych zawodów #}
+                {% if zawody %}
                  <div class="card text-center mb-4 shadow-sm">
                      <div class="card-header">
                         <i class="bi bi-flag-fill me-1"></i> Aktywne Zawody: <strong>{{ zawody.nazwa }}</strong>
+                        {% if current_user.role == 'admin' %}
+                           (<a href="{{ url_for('zawody') }}" class="alert-link small">Zmień</a>)
+                        {% endif %}
                      </div>
                      <div class="card-body">
-                        <p class="card-text text-muted small">Wybierz akcję dla aktywnych zawodów:</p>
-                        {# === NOWY UKŁAD KAFELKÓW === #}
-                        <div class="container-fluid px-0"> {# Usunięto padding kontenera #}
-                            <div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 g-3 justify-content-center"> {# Responstywna siatka #}
-
-                                {# Kafelek: Szczegóły #}
-                                <div class="col">
-                                    <a href="{{ url_for('szczegoly_zawodow', zawody_id=zawody.id) }}" class="btn btn-outline-primary p-3 d-block index-tile">
-                                        <i class="bi bi-info-circle d-block fs-2 mb-1"></i> {# Większa ikona #}
-                                        <span>Szczegóły</span>
-                                    </a>
-                                </div>
-
-                                {# Kafelek: Podgląd publiczny #}
-                                <div class="col">
-                                     <a href="{{ url_for('public_view', zawody_id=zawody.id) }}" class="btn btn-outline-info p-3 d-block index-tile" target="_blank">
-                                        <i class="bi bi-eye d-block fs-2 mb-1"></i>
-                                        <span>Podgląd publ.</span> {# Skrócony tekst #}
-                                     </a>
-                                 </div>
-
-                                {# === Kafelki tylko dla Admina === #}
-                                {% if current_user.role == 'admin' %}
-                                    {# Kafelek: Ustawienia #}
-                                    <div class="col">
-                                         <a href="{{ url_for('ustawienia') }}" class="btn btn-outline-secondary p-3 d-block index-tile">
-                                            <i class="bi bi-gear d-block fs-2 mb-1"></i>
-                                            <span>Ustawienia</span>
-                                         </a>
-                                     </div>
-                                    {# Kafelek: Zawodnicy #}
-                                    <div class="col">
-                                         <a href="{{ url_for('zawodnicy') }}" class="btn btn-outline-secondary p-3 d-block index-tile">
-                                            <i class="bi bi-people d-block fs-2 mb-1"></i>
-                                            <span>Zawodnicy</span>
-                                         </a>
-                                     </div>
-                                    {# Kafelek: Losowanie #}
-                                    <div class="col">
-                                         <a href="{{ url_for('losowanie') }}" class="btn btn-outline-secondary p-3 d-block index-tile">
-                                            <i class="bi bi-shuffle d-block fs-2 mb-1"></i>
-                                            <span>Losowanie</span>
-                                         </a>
-                                     </div>
-                                {% endif %}
-                                {# === Koniec kafelków Admina === #}
-
-                                {# === Kafelki dla Admina i Wagowego === #}
-                                {% if current_user.role in ['admin', 'wagowy'] %}
-                                    {# Kafelek: Wprowadź Wyniki #}
-                                     <div class="col">
-                                         <a href="{{ url_for('wprowadz_wyniki') }}" class="btn btn-outline-success p-3 d-block index-tile">
-                                            <i class="bi bi-input-cursor-text d-block fs-2 mb-1"></i>
-                                            <span>Wprowadź Wyniki</span>
-                                         </a>
-                                     </div>
-                                    {# Kafelek: Wyniki Końcowe #}
-                                     <div class="col">
-                                         <a href="{{ url_for('wyniki_koncowe') }}" class="btn btn-outline-warning p-3 d-block index-tile"> {# Zmieniono kolor #}
-                                            <i class="bi bi-trophy d-block fs-2 mb-1"></i>
-                                            <span>Klasyfikacja</span>
-                                         </a>
-                                     </div>
-                                    {# Kafelek: Wyniki Losowania (podgląd) #}
-                                     <div class="col">
-                                         <a href="{{ url_for('wyniki_losowania') }}" class="btn btn-outline-secondary p-3 d-block index-tile">
-                                            <i class="bi bi-card-list d-block fs-2 mb-1"></i>
-                                            <span>Wyniki Los.</span>
-                                         </a>
-                                     </div>
-                                {% endif %}
-                                {# === Koniec kafelków Admina/Wagowego === #}
-
-                            </div> {# Koniec row #}
-                        </div> {# Koniec container-fluid #}
-                        {# === KONIEC NOWEGO UKŁADU KAFELKÓW === #}
-                     </div> {# Koniec card-body #}
-                     <div class="card-footer text-muted small">
-                        <a href="{{ url_for('zawody') }}">Zmień/Zarządzaj innymi zawodami</a>
+                        <h5 class="card-title">Akcje dla Aktywnych Zawodów</h5>
+                        <div class="container-fluid px-0 mt-3">
+                            <div class="row row-cols-2 row-cols-sm-3 row-cols-lg-4 g-3 justify-content-center">
+                                {# ... (kafelki dla aktywnych zawodów - bez zmian) ... #}
+                                 <div class="col"><a href="{{ url_for('szczegoly_zawodow', zawody_id=zawody.id) }}" class="btn btn-outline-primary p-3 d-block index-tile"><i class="bi bi-info-circle d-block fs-2 mb-1"></i><span>Szczegóły</span></a></div>
+                                 <div class="col"><a href="{{ url_for('public_view', zawody_id=zawody.id) }}" class="btn btn-outline-info p-3 d-block index-tile" target="_blank"><i class="bi bi-eye d-block fs-2 mb-1"></i><span>Podgląd publ.</span></a></div>
+                                 {% if current_user.role == 'admin' %}
+                                     <div class="col"><a href="{{ url_for('ustawienia') }}" class="btn btn-outline-secondary p-3 d-block index-tile"><i class="bi bi-gear d-block fs-2 mb-1"></i><span>Ustawienia</span></a></div>
+                                     <div class="col"><a href="{{ url_for('zawodnicy') }}" class="btn btn-outline-secondary p-3 d-block index-tile"><i class="bi bi-people d-block fs-2 mb-1"></i><span>Zawodnicy</span></a></div>
+                                     <div class="col"><a href="{{ url_for('losowanie') }}" class="btn btn-outline-secondary p-3 d-block index-tile"><i class="bi bi-shuffle d-block fs-2 mb-1"></i><span>Losowanie</span></a></div>
+                                 {% endif %}
+                                 {% if current_user.role in ['admin', 'wagowy'] %}
+                                     <div class="col"><a href="{{ url_for('wprowadz_wyniki') }}" class="btn btn-outline-success p-3 d-block index-tile"><i class="bi bi-input-cursor-text d-block fs-2 mb-1"></i><span>Wprowadź Wyniki</span></a></div>
+                                     <div class="col"><a href="{{ url_for('wyniki_koncowe') }}" class="btn btn-outline-warning p-3 d-block index-tile"><i class="bi bi-trophy d-block fs-2 mb-1"></i><span>Klasyfikacja</span></a></div>
+                                     <div class="col"><a href="{{ url_for('wyniki_losowania') }}" class="btn btn-outline-secondary p-3 d-block index-tile"><i class="bi bi-card-list d-block fs-2 mb-1"></i><span>Wyniki Los.</span></a></div>
+                                 {% endif %}
+                            </div>
+                        </div>
                      </div>
-                 </div> {# Koniec card #}
-                {% else %} {# Jeśli zalogowany, ale nie wybrano zawodów #}
-                    <div class="alert alert-warning" role="alert">
+                 </div>
+                {% else %}
+                    <div class="alert alert-warning shadow-sm" role="alert"> {# Dodano cień #}
                         <i class="bi bi-exclamation-triangle"></i> Nie wybrano żadnych aktywnych zawodów. {% if current_user.role == 'admin' %}<a href="{{ url_for('zawody') }}" class="alert-link">Wybierz lub utwórz zawody</a>{% else %}Skontaktuj się z administratorem.{% endif %}, aby kontynuować.
                     </div>
-                {% endif %} {# Koniec if zawody #}
+                {% endif %}
+
+                 {# Dodatkowe Kafelki Ogólne #}
+                 <div class="mt-4 pt-4 border-top">
+                      <div class="container-fluid px-0">
+                          <div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 g-3 justify-content-center">
+                               {# Kafelek: Zarządzaj Zawodami (dla admina) #}
+                               {% if current_user.role == 'admin' %}
+                                <div class="col">
+                                     <a href="{{ url_for('zawody') }}" class="btn btn-outline-secondary p-3 d-block index-tile">
+                                        <i class="bi bi-list-check d-block fs-2 mb-1"></i>
+                                        <span>Zarządzaj Zawodami</span> {# Zmieniono tekst #}
+                                     </a>
+                                 </div>
+                                {# Kafelek: Użytkownicy (dla admina) #}
+                                <div class="col">
+                                     <a href="{{ url_for('user_list') }}" class="btn btn-outline-secondary p-3 d-block index-tile">
+                                        <i class="bi bi-person-badge d-block fs-2 mb-1"></i>
+                                        <span>Użytkownicy</span>
+                                     </a>
+                                 </div>
+                                {% endif %}
+
+                                {# === ZMODYFIKOWANY KAFELEK WYLOGUJ === #}
+                                <div class="col">
+                                     <a href="{{ url_for('logout') }}" class="btn btn-outline-danger p-3 d-block index-tile">
+                                        <i class="bi bi-box-arrow-right d-block fs-2 mb-1"></i>
+                                        {# Dodano informację o użytkowniku #}
+                                        <span>Wyloguj<br><small class="text-muted">({{ current_user.username }})</small></span>
+                                     </a>
+                                 </div>
+                                {# === KONIEC ZMODYFIKOWANEGO KAFELKA === #}
+                          </div>
+                      </div>
+                 </div>
 
             {% else %} {# Jeśli niezalogowany #}
+                 {# Ten blok nie powinien być teraz osiągalny przez trasę /index, #}
+                 {# bo niezalogowani widzą landing_page.html #}
+                 {# Ale zostawiamy na wszelki wypadek #}
                 <div class="alert alert-info" role="alert">
                  Aby uzyskać dostęp do funkcji aplikacji, <a href="{{ url_for('login') }}" class="alert-link">zaloguj się</a>.
                 </div>
                  <p><a href="{{ url_for('public_lista_zawodow') }}">Zobacz publiczne wyniki zawodów</a></p>
             {% endif %} {# Koniec if current_user.is_authenticated #}
-        </div> {# Koniec col-lg-8 #}
-    </div> {# Koniec diva Hero #}
 
-    {# Dodatkowe style dla kafelków na stronie głównej #}
+    </div> {# Koniec głównego kontenera #}
+
+    {# Style dla kafelków (bez zmian) #}
     <style>
-        .index-tile {
-            display: flex !important;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            height: 100%; /* Kafelki w rzędzie będą miały tę samą wysokość */
-            transition: all 0.2s ease-in-out;
-            font-weight: 500;
-        }
-        .index-tile:hover {
-            transform: translateY(-3px); /* Lekkie uniesienie */
-            box-shadow: 0 4px 8px rgba(0,0,0,.1);
-        }
-        .index-tile i {
-            /* Rozmiar ikon - dostosuj wg potrzeb */
-            /* Używamy klas Bootstrap 5 dla rozmiaru (fs-2),
-               dla Bootstrap 4 trzeba by ustawić font-size ręcznie */
-             font-size: 2rem; /* Ręczne ustawienie dla BS4 */
-        }
-         .index-tile span {
-             font-size: 0.9em; /* Mniejszy tekst pod ikoną */
-             margin-top: 0.25rem;
-         }
-        /* Dostosowanie klas fs-* dla Bootstrap 4 */
-        @media (min-width: 0px) { /* Zawsze stosuj, jeśli BS5 nie jest używany */
-            .fs-2 { font-size: 2rem !important; }
-            .fs-4 { font-size: 1.5rem !important; }
-        }
+        .index-tile{display:flex !important;flex-direction:column;justify-content:center;align-items:center;height:100%;transition:all 0.2s ease-in-out;font-weight:500}.index-tile:hover{transform:translateY(-3px);box-shadow:0 4px 8px rgba(0,0,0,.1)}.index-tile i{font-size:2rem}.index-tile span{font-size:.9em;margin-top:.25rem}
+        @media (min-width:0px){.fs-2{font-size:2rem !important;}.fs-4{font-size:1.5rem !important}}
+        /* Dodatkowy styl dla małego tekstu w kafelku Wyloguj */
+        .index-tile span small { font-size: 0.8em; display: block; line-height: 1; }
     </style>
 {% endblock %}
