@@ -934,10 +934,18 @@ def losowanie():
         return redirect(url_for('zawody'))
   return render_template('losowanie.html')
 
+# === Trasa /losuj_sekwencje (TWOJA ISTNIEJĄCA TRASA Z PONAWIANIEM) ===
 @app.route('/losuj_sekwencje', methods=['POST'])
 @login_required
 @role_required('admin')
-def losuj_sekwencje():
+def losuj_sekwencje(): # Używamy Twojej nazwy funkcji
+    """
+    Losuje sekwencje stref dla wszystkich zawodników (wypełniając pustymi miejscami).
+    Automatycznie ponawia próbę losowania (do MAX_PROB razy), jeśli pierwsza się nie powiedzie.
+    Resetuje poprzednie losowanie i wyniki wagowe.
+    """
+    logger = current_app.logger if current_app else logging.getLogger(__name__)
+    logger.info(f">>> Starting Zone Sequence Draw (with retries) by admin {current_user.username}")
     if 'current_zawody_id' not in session:
         flash('Najpierw wybierz zawody!', 'error')
         return redirect(url_for('zawody'))
@@ -948,187 +956,215 @@ def losuj_sekwencje():
         flash("Najpierw ustaw parametry zawodów!", "error")
         return redirect(url_for("ustawienia"))
 
-    # Uzupełnianie do pełnej pojemności "Pustymi miejscami"
+    # --- Krok 0: Przygotowanie zawodników i czyszczenie starych danych ---
     try:
+        # Pobierz parametry, sprawdź ich poprawność
         liczba_stref = ustawienia.preferowana_liczba_stref
-        liczba_sektorow = ustawienia.preferowana_liczba_sektorow
-        maks_stanowisk = ustawienia.maks_liczba_stanowisk_w_sektorze
+        liczba_sektorow = ustawienia.preferowana_liczba_sektorow # Potrzebne do pojemności
+        maks_stanowisk = ustawienia.maks_liczba_stanowisk_w_sektorze # Potrzebne do pojemności
         liczba_tur = ustawienia.liczba_tur
+        # === POPRAWIONA WALIDACJA USTAWIEŃ ===
+        if not all(isinstance(val, int) and val > 0 for val in [liczba_stref, liczba_sektorow, maks_stanowisk, liczba_tur]):
+             raise ValueError("Nieprawidłowe ustawienia (wartości muszą być dodatnimi liczbami całkowitymi).")
         maks_miejsc = liczba_stref * liczba_sektorow * maks_stanowisk
-    except AttributeError:
-         flash("Błąd w odczycie ustawień zawodów.", "danger")
-         return redirect(url_for('ustawienia'))
+        logger.debug(f"Calculated capacity: {maks_miejsc} spots.")
 
-    print(f"Obliczona maksymalna liczba miejsc: {maks_miejsc}")
+        # Sprawdź zgodność liczby tur i stref
+        if liczba_tur > liczba_stref:
+            flash(f"Liczba tur ({liczba_tur}) nie może być większa niż liczba stref ({liczba_stref})!", "error")
+            logger.warning(f"Draw aborted: Rounds ({liczba_tur}) > Zones ({liczba_stref}).")
+            return redirect(url_for('ustawienia'))
 
-    if liczba_tur > liczba_stref:
-        flash(f"Liczba tur ({liczba_tur}) nie może być większa niż liczba stref ({liczba_stref})! Zmień ustawienia.", "error")
-        return redirect(url_for("ustawienia"))
+        # Pobierz liczbę rzeczywistych zawodników
+        aktualni_zawodnicy_count = Zawodnik.query.filter_by(zawody_id=zawody_id, is_puste_miejsce=False).count()
+        liczba_pustych_do_dodania = maks_miejsc - aktualni_zawodnicy_count
+        logger.debug(f"Real competitors: {aktualni_zawodnicy_count}, Empty slots to add: {liczba_pustych_do_dodania}")
 
-    aktualni_zawodnicy = Zawodnik.query.filter(
-        Zawodnik.zawody_id == zawody_id,
-        Zawodnik.is_puste_miejsce == False
-    ).all()
-    liczba_aktualnych = len(aktualni_zawodnicy)
-    print(f"Liczba aktualnie wpisanych zawodników: {liczba_aktualnych}")
+        if liczba_pustych_do_dodania < 0:
+            flash(f"Liczba zapisanych zawodników ({aktualni_zawodnicy_count}) przekracza maksymalną pojemność ({maks_miejsc})!", "danger")
+            logger.error(f"Draw aborted: Competitors ({aktualni_zawodnicy_count}) > Capacity ({maks_miejsc}).")
+            return redirect(url_for('zawodnicy'))
 
+        # Przygotuj listę w transakcji
+        # Użycie with zapewnia automatyczny commit lub rollback
+        with db.session.begin_nested():
+            logger.warning(f"Sequence Draw: Clearing old draw/weight data and empty slots for comp {zawody_id}")
+            # Usuń stare dane losowania i wyników
+            WynikLosowania.query.filter_by(zawody_id=zawody_id).delete(synchronize_session=False) # Lepsze dla wydajności
+            Wynik.query.filter_by(zawody_id=zawody_id).delete(synchronize_session=False)
+            # Usuń tylko PUSTE miejsca
+            Zawodnik.query.filter_by(zawody_id=zawody_id, is_puste_miejsce=True).delete(synchronize_session=False)
+            # Dodaj nowe puste miejsca, jeśli potrzeba
+            if liczba_pustych_do_dodania > 0:
+                logger.info(f"Adding {liczba_pustych_do_dodania} empty slots.")
+                db.session.add_all([Zawodnik(zawody_id=zawody_id, is_puste_miejsce=True) for _ in range(liczba_pustych_do_dodania)])
+        db.session.commit() # Zatwierdź przygotowanie listy
+        logger.debug("Competitor list preparation committed.")
+
+    except ValueError as ve:
+         flash(f"Błąd w ustawieniach: {ve}", "danger"); return redirect(url_for('ustawienia'))
+    except SQLAlchemyError as db_err: # Łap błędy DB przy czyszczeniu/dodawaniu
+        db.session.rollback(); logger.error(f"Sequence Draw: DB Error preparing competitors: {db_err}", exc_info=True); flash(f"Błąd bazy danych podczas przygotowania listy: {db_err}", "danger"); return redirect(url_for('zawodnicy'))
+    except Exception as e: # Inne błędy
+        db.session.rollback(); logger.error(f"Sequence Draw: Error preparing competitors: {e}", exc_info=True); flash(f"Błąd przygotowania listy: {e}", "danger"); return redirect(url_for('zawodnicy'))
+
+    # Pobierz pełną listę zawodników po przygotowaniu
     try:
-        liczba_usunietych_pustych = Zawodnik.query.filter(
-            Zawodnik.zawody_id == zawody_id,
-            Zawodnik.is_puste_miejsce == True
-        ).delete()
-        WynikLosowania.query.filter_by(zawody_id=zawody_id).delete()
-        db.session.commit()
-        print(f"Usunięto {liczba_usunietych_pustych} poprzednich 'Pustych miejsc' i wyniki losowania.")
+        zawodnicy_do_losowania = Zawodnik.query.filter_by(zawody_id=zawody_id).all()
+        liczba_zawodnikow_do_los = len(zawodnicy_do_losowania)
     except Exception as e:
-        db.session.rollback()
-        flash(f"Błąd podczas czyszczenia starych danych: {e}", "danger")
-        return redirect(url_for('zawodnicy'))
+        logger.error(f"Sequence Draw: Error fetching prepared competitors: {e}", exc_info=True); flash(f"Błąd pobierania listy do losowania: {e}", "danger"); return redirect(url_for('zawodnicy'))
 
-    liczba_pustych_do_dodania = maks_miejsc - liczba_aktualnych
-
-    if liczba_pustych_do_dodania < 0:
-        flash(f"Błąd: Liczba wpisanych zawodników ({liczba_aktualnych}) przekracza maksymalną pojemność ({maks_miejsc})! "
-              f"Zmniejsz liczbę zawodników lub zmień ustawienia.", "danger")
-        return redirect(url_for('zawodnicy'))
-
-    if liczba_pustych_do_dodania > 0:
-        print(f"Dodawanie {liczba_pustych_do_dodania} 'Pustych miejsc'...")
-        nowe_puste_miejsca = [Zawodnik(zawody_id=zawody_id, is_puste_miejsce=True) for _ in range(liczba_pustych_do_dodania)]
-        if nowe_puste_miejsca:
-            db.session.add_all(nowe_puste_miejsca)
-            try:
-                db.session.commit()
-                flash(f"Dodano {liczba_pustych_do_dodania} 'Pustych miejsc', aby wypełnić pojemność.", "info")
-            except Exception as e:
-                db.session.rollback()
-                flash(f"Błąd podczas dodawania 'Pustych miejsc': {e}", "danger")
-                return redirect(url_for('zawodnicy'))
-    else:
-         print("Liczba zawodników zgadza się z pojemnością.")
-
-    zawodnicy_do_losowania = Zawodnik.query.filter_by(zawody_id=zawody_id).all()
-    liczba_zawodnikow_do_los = len(zawodnicy_do_losowania)
-
+    # Dodatkowe sprawdzenia po przygotowaniu
     if liczba_zawodnikow_do_los != maks_miejsc:
-         flash(f"Błąd wewnętrzny: Niezgodność liczby zawodników ({liczba_zawodnikow_do_los}) z pojemnością ({maks_miejsc}).", "danger")
-         return redirect(url_for('zawodnicy'))
+         flash(f"Błąd wewnętrzny: Niezgodność liczby zawodników ({liczba_zawodnikow_do_los}) z pojemnością ({maks_miejsc}) po przygotowaniu listy.", "danger"); return redirect(url_for('zawodnicy'))
+    if not zawodnicy_do_losowania:
+         flash("Brak zawodników do losowania.", "warning"); return redirect(url_for('zawodnicy'))
 
-    if liczba_zawodnikow_do_los == 0:
-         flash("Brak zawodników do losowania!", "warning")
-         return redirect(url_for('zawodnicy'))
+    # === Losowanie Sekwencji Stref z PĘTLĄ PONAWIANIA ===
+    logger.info("Sequence Draw: Drawing Zone Sequences (with retries)...")
+    MAX_PROB_LOSOWANIA_STREF = 20 # Zwiększono liczbę prób
+    macierz_losowania = None # Wynikowa macierz
+    sukces_losowania_stref = False
+    last_error_flash = None # Zapisz ostatni błąd flash z pętli
 
-    # Losowanie stref (wersja ścisła - priorytet trudnych + losowy wybór z najlepszych)
-    print("=== LOSUJ SEKWENCJE (Wersja ŚCISŁA - Priorytet Trudnych + Losowy Wybór) ===")
-    print(f"Liczba zawodników do losowania: {liczba_zawodnikow_do_los}")
+    for proba in range(MAX_PROB_LOSOWANIA_STREF):
+        logger.debug(f"Attempting zone sequence draw: Trial {proba + 1}/{MAX_PROB_LOSOWANIA_STREF}")
+        # Tworzymy tymczasową macierz dla tej próby
+        macierz_temp = [[None] * liczba_tur for _ in range(liczba_zawodnikow_do_los)]
+        ok_proba = True # Flaga sukcesu dla tej próby
+        last_error_flash = None # Resetuj błąd dla tej próby
 
-    strefy = [str(i) for i in range(1, liczba_stref + 1)]
-    idealna_liczba_na_strefe = liczba_zawodnikow_do_los // liczba_stref
-    reszta = liczba_zawodnikow_do_los % liczba_stref
-    SCISLE_LIMITY_STREF = {strefa: idealna_liczba_na_strefe + (1 if int(strefa) <= reszta else 0) for strefa in strefy}
-    print(f"ŚCISŁE Limity zawodników na strefę: {SCISLE_LIMITY_STREF}")
+        try:
+            # --- Logika losowania stref (jak w /losuj_sekwencje) ---
+            strefy = [str(i) for i in range(1, liczba_stref + 1)]
+            idl = liczba_zawodnikow_do_los // liczba_stref
+            resz = liczba_zawodnikow_do_los % liczba_stref
+            SCISLE_LIMITY_STREF = {s: idl + (1 if int(s) <= resz else 0) for s in strefy}
+            indeks_na_id = {i: z.id for i, z in enumerate(zawodnicy_do_losowania)} # Mapa indeks -> ID
 
-    macierz_losowania = [[None for _ in range(liczba_tur)] for _ in range(liczba_zawodnikow_do_los)]
-    zawodnik_ids = [z.id for z in zawodnicy_do_losowania]
-    indeks_na_id = {i: zawodnik_ids[i] for i in range(liczba_zawodnikow_do_los)}
+            for t in range(liczba_tur): # Pętla po turach
+                if not ok_proba: break # Jeśli coś poszło nie tak w tej próbie, przerwij tury
+                liczniki_stref_w_turze = defaultdict(int)
+                # Przygotuj opcje dla zawodników
+                opcje_dla_zawodnika = {}
+                for idx in range(liczba_zawodnikow_do_los):
+                    poprzednie = [macierz_temp[idx][pt] for pt in range(t) if macierz_temp[idx][pt] is not None]
+                    opcje_dla_zawodnika[idx] = {'nieodwiedzone': [s for s in strefy if s not in poprzednie]}
+                    opcje_dla_zawodnika[idx]['liczba_opcji'] = len(opcje_dla_zawodnika[idx]['nieodwiedzone'])
+                # Posortuj wg liczby opcji (rosnąco)
+                indeksy_posortowane = sorted(range(liczba_zawodnikow_do_los), key=lambda idx: opcje_dla_zawodnika[idx]['liczba_opcji'])
 
-    wszystko_ok = True
-    for t in range(liczba_tur):
-        if not wszystko_ok: break
-        print(f"  Losowanie Tury {t + 1}")
-        tura_idx = t
-        liczniki_stref_w_turze = defaultdict(int)
+                # Przypisz strefy w posortowanej kolejności
+                for i in indeksy_posortowane: # Pętla po zawodnikach (posortowanych)
+                    strefy_nieodwiedzone_zaw = opcje_dla_zawodnika[i]['nieodwiedzone']
+                    # Znajdź możliwe strefy (nieodwiedzone i z miejscem wg limitu tury)
+                    strefy_mozliwe = [s for s in strefy_nieodwiedzone_zaw if liczniki_stref_w_turze[s] < SCISLE_LIMITY_STREF.get(s, 0)]
 
-        # Logika kolejności przetwarzania (Priorytet Trudnych)
-        opcje_dla_zawodnika = {}
-        for idx in range(liczba_zawodnikow_do_los):
-            poprzednie_strefy = [macierz_losowania[idx][prev_t] for prev_t in range(tura_idx) if macierz_losowania[idx][prev_t] is not None]
-            strefy_nieodwiedzone = [s for s in strefy if s not in poprzednie_strefy]
-            opcje_dla_zawodnika[idx] = {
-                'nieodwiedzone': strefy_nieodwiedzone,
-                'liczba_opcji': len(strefy_nieodwiedzone)
-            }
-        indeksy_posortowane = sorted(range(liczba_zawodnikow_do_los), key=lambda idx: opcje_dla_zawodnika[idx]['liczba_opcji'])
-        # print(f"    Kolejność przetwarzania zawodników: {indeksy_posortowane}") # Opcjonalnie
+                    if not strefy_mozliwe:
+                        # Błąd krytyczny - nie można przypisać strefy
+                        zaw_id_err = indeks_na_id.get(i, f'Index {i}')
+                        last_error_flash = (f"Próba {proba + 1} nieudana: Brak możliwej strefy dla ID: {zaw_id_err} w Turze {t + 1}. "
+                                            f"Nieodwiedzone: {strefy_nieodwiedzone_zaw}, Liczniki: {dict(liczniki_stref_w_turze)}, Limity: {SCISLE_LIMITY_STREF}")
+                        logger.warning(last_error_flash + " Retrying...")
+                        ok_proba = False; break # Przerwij pętlę po zawodnikach DLA TEJ TURY i tej próby
 
-        # Przetwarzaj zawodników w posortowanej kolejności
-        for i in indeksy_posortowane:
-            zawodnik_idx = i
-            zawodnik_id_aktualny = indeks_na_id.get(zawodnik_idx, 'Nieznane ID')
-            strefy_nieodwiedzone_zaw = opcje_dla_zawodnika[zawodnik_idx]['nieodwiedzone']
+                    # Wybierz najlepszą z możliwych (najmniej zapełnioną)
+                    min_licznik = min(liczniki_stref_w_turze[s] for s in strefy_mozliwe)
+                    najlepsze = [s for s in strefy_mozliwe if liczniki_stref_w_turze[s] == min_licznik]
+                    # Wylosuj jedną z najlepszych
+                    wylosowana_strefa = random.choice(najlepsze)
+                    macierz_temp[i][t] = wylosowana_strefa
+                    liczniki_stref_w_turze[wylosowana_strefa] += 1
+                # Koniec pętli po zawodnikach dla tury 't'
+                if not ok_proba: break # Jeśli błąd w pętli po zawodnikach, przerwij też pętlę po turach
+            # Koniec pętli po turach dla próby 'proba'
 
-            strefy_mozliwe_do_przypisania = [
-                s for s in strefy_nieodwiedzone_zaw
-                if liczniki_stref_w_turze[s] < SCISLE_LIMITY_STREF.get(s, 0)
-            ]
+            # Sprawdź kompletność macierzy po zakończeniu wszystkich tur DLA TEJ PRÓBY
+            if ok_proba: # Jeśli nie było błędu "braku możliwej strefy"
+                if all(all(row) for row in macierz_temp): # Sprawdź, czy wszystkie komórki są wypełnione
+                    logger.info(f"Zone sequence draw successful on trial {proba + 1}.")
+                    macierz_losowania = macierz_temp # Przypisz udaną macierz
+                    sukces_losowania_stref = True
+                    break # SUKCES! Wyjdź z pętli prób
+                else: # Pętla po turach się zakończyła, ale macierz niekompletna
+                     last_error_flash = f"Próba {proba + 1} nieudana: Wygenerowana macierz jest niekompletna."
+                     logger.warning(last_error_flash + " Retrying...")
+                     ok_proba = False # Oznacz próbę jako nieudaną
 
-            if not strefy_mozliwe_do_przypisania:
-                flash(f"BŁĄD KRYTYCZNY: Niemożliwe przypisanie unikalnej i nieprzepełnionej strefy dla zawodnika ID: {zawodnik_id_aktualny} w turze {t + 1}. "
-                      f"Konfiguracja niemożliwa. Zmień ustawienia. "
-                      f"Nieodwiedzone strefy: {strefy_nieodwiedzone_zaw}. "
-                      f"Liczniki tury: {dict(liczniki_stref_w_turze)}. "
-                      f"Ścisłe limity: {SCISLE_LIMITY_STREF}", "danger")
-                print(f"    BŁĄD KRYTYCZNY ŚCISŁY (Priorytet): Zawodnik {zawodnik_idx} (ID: {zawodnik_id_aktualny}), Tura {t + 1}.")
-                wszystko_ok = False
-                break # Przerwij pętlę po zawodnikach
+        except Exception as e: # Złap inne błędy podczas losowania
+            last_error_flash = f"Próba {proba + 1} nieudana z powodu wyjątku: {e}"
+            logger.error(last_error_flash, exc_info=True)
+            ok_proba = False # Oznacz próbę jako nieudaną
 
-            # Znajdź najlepsze możliwe strefy (najmniej zapełnione spośród możliwych)
-            min_licznik_wsrod_mozliwych = min(liczniki_stref_w_turze[s] for s in strefy_mozliwe_do_przypisania)
-            najlepsze_mozliwe_strefy = [
-                s for s in strefy_mozliwe_do_przypisania
-                if liczniki_stref_w_turze[s] == min_licznik_wsrod_mozliwych
-            ]
+        # Pętla 'for proba' przejdzie do następnej iteracji, jeśli ok_proba == False
 
-            # --- Losowy wybór spośród najlepszych opcji ---
-            wylosowana_strefa = random.choice(najlepsze_mozliwe_strefy)
-            # --- Koniec losowego wyboru ---
+    # Sprawdzenie po wszystkich próbach
+    if not sukces_losowania_stref:
+        final_error_msg = last_error_flash or f"Nie udało się wylosować poprawnej sekwencji stref po {MAX_PROB_LOSOWANIA_STREF} próbach."
+        flash(final_error_msg + " Sprawdź ustawienia (szczególnie liczbę tur vs stref) lub spróbuj ponownie.", "danger")
+        logger.error(f"Sequence Draw FAILED: Could not generate valid zone sequences after {MAX_PROB_LOSOWANIA_STREF} trials.")
+        return redirect(url_for('losowanie')) # Wróć do panelu losowania
+    # === KONIEC Losowania Sekwencji Stref z PĘTLĄ PONAWIANIA ===
 
-            print(f"      Zawodnik {zawodnik_idx} (ID: {zawodnik_id_aktualny}): Wybrano strefę {wylosowana_strefa} (losowo z najlepszych: {najlepsze_mozliwe_strefy})")
 
-            macierz_losowania[zawodnik_idx][tura_idx] = wylosowana_strefa
-            liczniki_stref_w_turze[wylosowana_strefa] += 1
+    # === Zapis udanego losowania stref do bazy ===
+    logger.info("Sequence Draw: Saving results to database...")
+    wyniki_do_zapisu = []
+    indeks_na_id = {i: z.id for i, z in enumerate(zawodnicy_do_losowania)} # Upewnij się, że to mapowanie jest aktualne
 
-        if not wszystko_ok: break # Przerwij pętlę po turach
+    # Sprawdź, czy wszystkie ID zawodników są poprawne (nie None)
+    if None in indeks_na_id.values():
+         flash("Błąd krytyczny: Niektórzy zawodnicy mają brakujące ID. Nie można zapisać losowania.", "danger")
+         logger.critical(f"Sequence Draw Save Error: Found None ID in zawodnicy_do_losowania for comp {zawody_id}")
+         return redirect(url_for('zawodnicy')) # Przekieruj do listy zawodników
 
-    # Zapis do bazy tylko jeśli wszystko_ok
-    if wszystko_ok:
-        wyniki_do_zapisu = []
-        kompletna_macierz = True
-        for idx in range(liczba_zawodnikow_do_los):
-             if not all(macierz_losowania[idx][t] is not None for t in range(liczba_tur)):
-                  zawodnik_id_brak = indeks_na_id.get(idx, 'Nieznane ID')
-                  print(f"OSTRZEŻENIE: Macierz losowania niekompletna dla zawodnika ID: {zawodnik_id_brak}.")
-                  flash(f"Błąd: Nie udało się wygenerować pełnej sekwencji dla zawodnika ID: {zawodnik_id_brak}.", "danger")
-                  kompletna_macierz = False
-                  break
-
-        if kompletna_macierz:
-            for idx, zawodnik_id in indeks_na_id.items():
-                wynik = WynikLosowania(zawodnik_id=zawodnik_id, zawody_id=zawody_id)
-                for t in range(liczba_tur):
+    # Tworzenie obiektów WynikLosowania
+    for idx, zawodnik_id in indeks_na_id.items():
+        # Sprawdź, czy macierz ma odpowiedni wymiar (na wszelki wypadek)
+        if idx < len(macierz_losowania):
+            wynik = WynikLosowania(zawodnik_id=zawodnik_id, zawody_id=zawody_id)
+            for t in range(liczba_tur):
+                if t < len(macierz_losowania[idx]):
                     strefa = macierz_losowania[idx][t]
                     setattr(wynik, f'tura{t + 1}_strefa', strefa)
                     setattr(wynik, f'tura{t + 1}_sektor', None)
                     setattr(wynik, f'tura{t + 1}_stanowisko', None)
-                wyniki_do_zapisu.append(wynik)
+                else:
+                    # To nie powinno się zdarzyć, jeśli macierz jest kompletna
+                    logger.error(f"Sequence Draw Save Error: Matrix row {idx} too short for round {t+1}")
+                    flash(f"Błąd wewnętrzny: Macierz losowania niekompletna dla zawodnika ID {zawodnik_id}.", "danger")
+                    return redirect(url_for('losowanie'))
+            wyniki_do_zapisu.append(wynik)
+        else:
+            logger.error(f"Sequence Draw Save Error: Matrix index {idx} out of bounds (matrix len: {len(macierz_losowania)})")
+            flash("Błąd wewnętrzny: Niezgodność wymiarów macierzy losowania.", "danger")
+            return redirect(url_for('losowanie'))
 
-            if wyniki_do_zapisu:
-                try:
-                    db.session.add_all(wyniki_do_zapisu)
-                    db.session.commit()
-                    flash('Wylosowano sekwencje (strefy) dla pełnej obsady!', 'success')
-                    print("Zapisano wyniki losowania stref.")
-                except Exception as e:
-                     db.session.rollback()
-                     flash(f"Błąd podczas zapisywania wyników losowania stref: {e}", "danger")
-                     print(f"Błąd zapisu do DB: {e}")
-            else:
-                flash("Nie wygenerowano żadnych wyników losowania stref do zapisu.", "error")
-        # else: (flash o błędzie był już wcześniej)
-
+    # Zapis do bazy w transakcji
+    if wyniki_do_zapisu:
+        try:
+            with db.session.begin_nested():
+                # Usuń stare wyniki losowania DLA PEWNOŚCI
+                WynikLosowania.query.filter_by(zawody_id=zawody_id).delete(synchronize_session=False)
+                # Dodaj nowe wyniki
+                db.session.add_all(wyniki_do_zapisu)
+            db.session.commit()
+            flash('Wylosowano sekwencje (strefy) dla pełnej obsady!', 'success')
+            logger.info(f"Sequence Draw results saved successfully for comp {zawody_id}.")
+        except Exception as e:
+             db.session.rollback()
+             logger.error(f"Sequence Draw: Error saving results to DB: {e}", exc_info=True)
+             flash(f"Błąd podczas zapisywania wyników losowania stref: {e}", "danger")
+             # Przekieruj do losowania, bo zapis się nie udał
+             return redirect(url_for('losowanie'))
     else:
-        print("Nie zapisano wyników losowania stref z powodu błędu krytycznego (konfiguracja niemożliwa).")
+        # Ten komunikat nie powinien się pojawić, jeśli sukces_losowania_stref=True
+        flash("Nie wygenerowano żadnych wyników losowania stref do zapisu (błąd wewnętrzny).", "error")
+        logger.error(f"Sequence Draw: No results to save despite reported success for comp {zawody_id}.")
+        return redirect(url_for('losowanie'))
 
+    # Przekieruj do wyników losowania, gdzie użytkownik może kontynuować (losować sektory/stanowiska)
     return redirect(url_for('wyniki_losowania'))
 
 
