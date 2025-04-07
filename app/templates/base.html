@@ -1,4 +1,4 @@
-{# Plik: templates/base.html (Minimalistyczne Menu Nawigacyjne) #}
+{# Plik: templates/base.html (Jeszcze bardziej minimalistyczne Menu) #}
 
 <!DOCTYPE html>
 <html lang="pl">
@@ -15,12 +15,9 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
     <style>
-        /* Dodatkowe style dla ikon w nowym menu */
+        /* Style dla ikon w menu - pozostają na wszelki wypadek */
         .navbar .nav-link .bi, .navbar .navbar-brand .bi {
-            margin-right: 0.4rem;
-            vertical-align: text-bottom; /* Lepsze wyrównanie */
-            position: relative; /* Umożliwia lekkie przesunięcie */
-            top: -1px;
+            margin-right: 0.4rem; vertical-align: text-bottom; position: relative; top: -1px;
         }
     </style>
 
@@ -28,62 +25,59 @@
 </head>
 <body>
 
-    {# === NOWE MINIMALISTYCZNE MENU NAWIGACYJNE === #}
-    <nav class="navbar navbar-expand-sm navbar-light bg-light mb-4 shadow-sm rounded"> {# navbar-expand-sm dla zwijania na małych #}
-      <div class="container"> {# Ograniczenie szerokości menu #}
+    {# === Minimalistyczne Menu Nawigacyjne === #}
+    <nav class="navbar navbar-expand-sm navbar-light bg-light mb-4 shadow-sm rounded">
+      <div class="container">
         {# Link do strony głównej/dashboardu - dynamiczny cel #}
         {% if current_user.is_authenticated %}
             {% if current_user.role == 'wagowy' %}
                 <a class="navbar-brand" href="{{ url_for('wagowy_dashboard') }}" title="Panel Wagowego">
                     <i class="bi bi-house-door-fill"></i> Panel Wagowego
                 </a>
-            {% else %} {# Dla admina i innych ról #}
+            {% else %} {# Dla admina #}
                 <a class="navbar-brand" href="{{ url_for('index') }}" title="Panel Główny">
                      <i class="bi bi-house-door-fill"></i> Panel Główny
                  </a>
             {% endif %}
-        {% else %} {# Dla niezalogowanych - link do strony powitalnej #}
+        {% else %} {# Dla niezalogowanych #}
              <a class="navbar-brand" href="{{ url_for('index') }}">
                  <i class="bi bi-water"></i> Zawody System
              </a>
         {% endif %}
 
-        {# Przycisk zwijania menu na małych ekranach #}
+        {# Przycisk zwijania menu #}
         <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNavSimple" aria-controls="navbarNavSimple" aria-expanded="false" aria-label="Toggle navigation">
           <span class="navbar-toggler-icon"></span>
         </button>
 
         {# Zawartość menu (zwijana) #}
         <div class="collapse navbar-collapse" id="navbarNavSimple">
-          <ul class="navbar-nav mr-auto"> {# Linki po lewej #}
-            <li class="nav-item {{ 'active' if request.endpoint == 'public_lista_zawodow' else '' }}">
-              <a class="nav-link" href="{{ url_for('public_lista_zawodow') }}"><i class="bi bi-eye"></i> Wyniki Publiczne</a>
-            </li>
-            {# Można tu dodać inne stałe linki, jeśli potrzebne #}
+          {# Usunięto linki wyrównane do lewej (był tu Wyniki Publiczne) #}
+          <ul class="navbar-nav mr-auto">
+            {# Można tu dodać inne globalne linki w przyszłości, jeśli będą potrzebne #}
           </ul>
-          <ul class="navbar-nav"> {# Linki po prawej #}
-            {% if current_user.is_authenticated %}
-                {# Info o użytkowniku - można przenieść do linku Wyloguj #}
-                <span class="navbar-text small mr-3">
-                    Zalogowany: {{ current_user.username }} ({{ current_user.role | capitalize }})
-                </span>
-                <li class="nav-item">
-                    <a class="nav-link" href="{{ url_for('logout') }}"><i class="bi bi-box-arrow-right"></i> Wyloguj</a>
-                 </li>
-            {% else %}
+          {# Linki po prawej - tylko logowanie #}
+          <ul class="navbar-nav">
+            {# === USUNIĘTO LINK WYLOGUJ i info o użytkowniku === #}
+            {# {% if current_user.is_authenticated %}
+                <span class="navbar-text small mr-3">Zalogowany: ...</span>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('logout') }}"><i class="bi bi-box-arrow-right"></i> Wyloguj</a></li>
+            {% else %} #}
+            {% if not current_user.is_authenticated %} {# Pokaż logowanie tylko jeśli niezalogowany #}
                 <li class="nav-item {{ 'active' if request.endpoint == 'login' else '' }}">
                     <a class="nav-link" href="{{ url_for('login') }}"><i class="bi bi-box-arrow-in-right"></i> Zaloguj</a>
                 </li>
             {% endif %}
+            {# === KONIEC USUWANIA === #}
           </ul>
-        </div> {# Koniec collapse #}
-      </div> {# Koniec container #}
+        </div>
+      </div>
     </nav>
-    {# === KONIEC NOWEGO MENU === #}
+    {# === KONIEC MENU === #}
 
 
     {# Główna zawartość strony dziedziczącej #}
-    <div class="container mt-3"> {# Kontener dla treści i flash #}
+    <div class="container mt-3">
         <main role="main">
             {# Wyświetlanie komunikatów Flash #}
             {% with messages = get_flashed_messages(with_categories=true) %}
@@ -99,7 +93,7 @@
                 {% endif %}
             {% endwith %}
 
-            {# Blok content wewnątrz kontenera #}
+            {# Blok content #}
             {% block content %}{% endblock %}
         </main>
     </div>
@@ -108,7 +102,9 @@
     <footer class="mt-4 text-center text-muted small container">
         <hr>
         © {% if current_year %}{{ current_year }}{% else %}<!-- Rok? -->{% endif %} Zawody Wędkarskie - System
-         | <a href="{{ url_for('public_lista_zawodow') }}" class="text-muted">Wyniki publiczne</a>
+         {# === ZMIANA TEKSTU LINKU === #}
+         | <a href="{{ url_for('public_lista_zawodow') }}" class="text-muted">Wyniki zawodów</a>
+         {# === KONIEC ZMIANY === #}
     </footer>
 
     <!-- Bootstrap JS, Popper.js, and jQuery (Wersja 4.5.2) -->
