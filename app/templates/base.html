@@ -1,4 +1,4 @@
-{# Plik: templates/base.html (Kompletny, bez nagłówka/menu, bez błędnego importu) #}
+{# Plik: templates/base.html (Minimalistyczne Menu Nawigacyjne) #}
 
 <!DOCTYPE html>
 <html lang="pl">
@@ -7,26 +7,88 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no">
     <title>{% block title %}Zawody Wędkarskie{% endblock %} - System</title>
 
-    <!-- Bootstrap CSS (Wersja 4.5.2 - zgodnie z Twoim kodem) -->
+    <!-- Bootstrap CSS (Wersja 4.5.2) -->
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" integrity="sha384-JcKb8q3iqJ61gNV9KGb8thSsNjpSL0n8PARn9HuZOnIxN0hoP+VmmDGMN5t9UJ0Z" crossorigin="anonymous">
     <!-- Bootstrap Icons CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <!-- Twój własny plik CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-    {# Blok na dodatkowe style lub skrypty w sekcji <head> #}
+    <style>
+        /* Dodatkowe style dla ikon w nowym menu */
+        .navbar .nav-link .bi, .navbar .navbar-brand .bi {
+            margin-right: 0.4rem;
+            vertical-align: text-bottom; /* Lepsze wyrównanie */
+            position: relative; /* Umożliwia lekkie przesunięcie */
+            top: -1px;
+        }
+    </style>
+
     {% block extra_head %}{% endblock %}
 </head>
 <body>
-    {# Główny kontener dla zawartości i komunikatów flash #}
-    {# Strony dziedziczące mogą dodać własne kontenery, jeśli potrzebują innego układu #}
-    <div class="container mt-3"> {# Standardowy kontener z marginesem górnym #}
+
+    {# === NOWE MINIMALISTYCZNE MENU NAWIGACYJNE === #}
+    <nav class="navbar navbar-expand-sm navbar-light bg-light mb-4 shadow-sm rounded"> {# navbar-expand-sm dla zwijania na małych #}
+      <div class="container"> {# Ograniczenie szerokości menu #}
+        {# Link do strony głównej/dashboardu - dynamiczny cel #}
+        {% if current_user.is_authenticated %}
+            {% if current_user.role == 'wagowy' %}
+                <a class="navbar-brand" href="{{ url_for('wagowy_dashboard') }}" title="Panel Wagowego">
+                    <i class="bi bi-house-door-fill"></i> Panel Wagowego
+                </a>
+            {% else %} {# Dla admina i innych ról #}
+                <a class="navbar-brand" href="{{ url_for('index') }}" title="Panel Główny">
+                     <i class="bi bi-house-door-fill"></i> Panel Główny
+                 </a>
+            {% endif %}
+        {% else %} {# Dla niezalogowanych - link do strony powitalnej #}
+             <a class="navbar-brand" href="{{ url_for('index') }}">
+                 <i class="bi bi-water"></i> Zawody System
+             </a>
+        {% endif %}
+
+        {# Przycisk zwijania menu na małych ekranach #}
+        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNavSimple" aria-controls="navbarNavSimple" aria-expanded="false" aria-label="Toggle navigation">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+
+        {# Zawartość menu (zwijana) #}
+        <div class="collapse navbar-collapse" id="navbarNavSimple">
+          <ul class="navbar-nav mr-auto"> {# Linki po lewej #}
+            <li class="nav-item {{ 'active' if request.endpoint == 'public_lista_zawodow' else '' }}">
+              <a class="nav-link" href="{{ url_for('public_lista_zawodow') }}"><i class="bi bi-eye"></i> Wyniki Publiczne</a>
+            </li>
+            {# Można tu dodać inne stałe linki, jeśli potrzebne #}
+          </ul>
+          <ul class="navbar-nav"> {# Linki po prawej #}
+            {% if current_user.is_authenticated %}
+                {# Info o użytkowniku - można przenieść do linku Wyloguj #}
+                <span class="navbar-text small mr-3">
+                    Zalogowany: {{ current_user.username }} ({{ current_user.role | capitalize }})
+                </span>
+                <li class="nav-item">
+                    <a class="nav-link" href="{{ url_for('logout') }}"><i class="bi bi-box-arrow-right"></i> Wyloguj</a>
+                 </li>
+            {% else %}
+                <li class="nav-item {{ 'active' if request.endpoint == 'login' else '' }}">
+                    <a class="nav-link" href="{{ url_for('login') }}"><i class="bi bi-box-arrow-in-right"></i> Zaloguj</a>
+                </li>
+            {% endif %}
+          </ul>
+        </div> {# Koniec collapse #}
+      </div> {# Koniec container #}
+    </nav>
+    {# === KONIEC NOWEGO MENU === #}
+
+
+    {# Główna zawartość strony dziedziczącej #}
+    <div class="container mt-3"> {# Kontener dla treści i flash #}
         <main role="main">
-            {# Wyświetlanie komunikatów Flash na górze strony #}
+            {# Wyświetlanie komunikatów Flash #}
             {% with messages = get_flashed_messages(with_categories=true) %}
                 {% if messages %}
                     {% for category, message in messages %}
-                        {# Użycie składni alertów Bootstrap 4 #}
                         <div class="alert alert-{{ category if category in ['primary', 'secondary', 'success', 'danger', 'warning', 'info', 'light', 'dark'] else 'info' }} alert-dismissible fade show" role="alert">
                             {{ message }}
                             <button type="button" class="close" data-dismiss="alert" aria-label="Close">
@@ -37,26 +99,23 @@
                 {% endif %}
             {% endwith %}
 
-            {# Główna zawartość strony dziedziczącej #}
+            {# Blok content wewnątrz kontenera #}
             {% block content %}{% endblock %}
         </main>
-    </div> {# Koniec głównego kontenera #}
+    </div>
 
     {# Stopka aplikacji #}
-    <footer class="mt-4 text-center text-muted small container"> {# Użyto klasy container dla ograniczenia szerokości stopki #}
+    <footer class="mt-4 text-center text-muted small container">
         <hr>
-        {# Wyświetlanie roku - polega na context_processor 'inject_current_year' z app/__init__.py #}
         © {% if current_year %}{{ current_year }}{% else %}<!-- Rok? -->{% endif %} Zawody Wędkarskie - System
-         | <a href="{{ url_for('public_lista_zawodow') }}" class="text-muted">Wyniki publiczne</a> {# Link do wyników publicznych #}
+         | <a href="{{ url_for('public_lista_zawodow') }}" class="text-muted">Wyniki publiczne</a>
     </footer>
 
     <!-- Bootstrap JS, Popper.js, and jQuery (Wersja 4.5.2) -->
-    {# Umieszczone na końcu body dla szybszego ładowania strony #}
     <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js" integrity="sha384-DfXdz2htPH0lsSSs5nCTpuj/zy4C+OGpamoFVy38MVBnE+IbbVYUew+OrCXaRkfj" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js" integrity="sha384-9/reFTGAW83EW2RDu2S0VKaIzap3H66lZH81PoYlFhbGU+6BZp6G7niu735Sk7lN" crossorigin="anonymous"></script>
     <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js" integrity="sha384-B4gt1jrGC7Jh4AgTPSdUtOBvfO8shuf57BaghqFfPlYxofvL8/KUEfYiJOMMV+rV" crossorigin="anonymous"></script>
 
-    {# Blok na dodatkowe skrypty JS w stronach dziedziczących #}
     {% block extra_scripts %}{% endblock %}
 </body>
 </html>
