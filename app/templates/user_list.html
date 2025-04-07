@@ -1,32 +1,70 @@
-{# W templates/user_list.html #}
-
+{# File: templates/user_list.html (Wersja z poprawnym CSRF dla usuwania) #}
 {% extends "base.html" %}
 
-{% block title %}Lista użytkowników{% endblock %}
+{% block title %}Lista Użytkowników{% endblock %}
 
 {% block content %}
-    <h2>Lista użytkowników</h2>
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2"> {# Dodano flex-wrap i gap #}
+        <h2 class="mb-0">Lista Użytkowników</h2> {# Usunięto margines dolny z H2 #}
+        {# Przycisk dodawania nowego użytkownika #}
+        <a href="{{ url_for('register') }}" class="btn btn-success btn-sm"><i class="bi bi-person-plus-fill me-1"></i> Dodaj nowego użytkownika</a>
+    </div>
 
-    <table class="table">
-        <thead>
-            <tr>
-                <th>ID</th>
-                <th>Nazwa użytkownika</th>
-                <th>Rola</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for user in users %}
-                <tr>
-                    <td>{{ user.id }}</td>
-                    <td>{{ user.username }}</td>
-                    <td>{{ user.role }}</td>
-                </tr>
-            {% else %}
-                <tr>
-                    <td colspan="3">Brak użytkowników.</td>
-                </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-{% endblock %}
+    {% if users %}
+        <div class="table-responsive shadow-sm rounded"> {# Dodano zaokrąglenie #}
+            <table class="table table-striped table-hover table-sm mb-0"> {# Użyto table-sm, usunięto mb-0 z tabeli #}
+                <thead class="thead-light"> {# Jaśniejszy nagłówek #}
+                    <tr>
+                        <th scope="col" style="width: 10%;">ID</th>
+                        <th scope="col">Nazwa użytkownika</th>
+                        <th scope="col">Rola</th>
+                        <th scope="col" class="text-center" style="width: 10%;">Akcja</th> {# Zmieniono nazwę i szerokość #}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in users %}
+                    <tr>
+                        <td>{{ user.id }}</td>
+                        <td>{{ user.username }}</td>
+                        <td>{{ user.role | capitalize }}</td> {# Wyświetlenie roli z wielkiej litery #}
+                        <td class="text-center align-middle"> {# Wyśrodkowanie w pionie #}
+                            {# Formularz Usuwania (zabezpieczony) #}
+                            {# Definicja warunku 'can_delete' #}
+                            {% set can_delete = True %}
+                            {# 1. Nie można usunąć samego siebie #}
+                            {% if current_user.id == user.id %}{% set can_delete = False %}{% endif %}
+                            {# 2. Chronimy tylko admina z ID 1 #}
+                            {% if user.id == 1 and user.role == 'admin' %}{% set can_delete = False %}{% endif %}
+                            {# 3. Opcjonalnie odkomentuj, aby chronić wszystkich adminów #}
+                            {# {% if user.role == 'admin' and current_user.id != user.id %}{% set can_delete = False %}{% endif %} #}
+
+                            {% if can_delete %}
+                                {# Formularz wysyłający POST do trasy delete_user #}
+                                <form action="{{ url_for('delete_user', user_id=user.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Czy na pewno chcesz usunąć użytkownika \'{{ user.username | escape }}\'? Tej operacji nie można cofnąć!');">
+                                    {# === POPRAWKA: Użycie hidden_tag() z przekazanego formularza === #}
+                                    {# Zakładamy, że pusty formularz został przekazany z trasy user_list jako 'csrf_form' #}
+                                    {{ csrf_form.hidden_tag() }}
+                                    {# === KONIEC POPRAWKI === #}
+
+                                    <button type="submit" class="btn btn-danger btn-sm" title="Usuń użytkownika">
+                                        <i class="bi bi-trash"></i> {# Tylko ikona dla oszczędności miejsca #}
+                                    </button>
+                                </form>
+                            {% else %}
+                                {# Pokaż nieaktywny przycisk dla chronionych użytkowników #}
+                                <button type="button" class="btn btn-secondary btn-sm" disabled title="Nie można usunąć tego użytkownika">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            {% endif %} {# Koniec warunku can_delete #}
+                        </td> {# Koniec kolumny Akcje #}
+                    </tr>
+                    {% endfor %} {# Koniec pętli po użytkownikach #}
+                </tbody>
+            </table>
+        </div> {# Koniec table-responsive #}
+    {% else %}
+        {# Komunikat, gdy brak użytkowników #}
+        <div class="alert alert-info mt-3">Brak zarejestrowanych użytkowników. Możesz dodać pierwszego administratora.</div>
+    {% endif %} {# Koniec if users #}
+
+{% endblock %} {# Koniec bloku content #}
