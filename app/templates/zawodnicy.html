@@ -1,4 +1,4 @@
-{# File: templates/zawodnicy.html #}
+{# File: templates/zawodnicy.html (Dodano numerację L.p.) #}
 {% extends "base.html" %}
 
 {% block title %}Zarządzaj Zawodnikami{% endblock %}
@@ -6,83 +6,74 @@
 {% block content %}
     <h2>Zarządzaj Zawodnikami</h2>
 
-    {# Informacja o aktualnych zawodach (opcjonalnie) #}
-    {% if session.get('current_zawody_nazwa') %}
-        <p class="text-muted">Dla zawodów: {{ session['current_zawody_nazwa'] }}</p>
-    {% endif %}
-
+    {# ... (Informacja o zawodach, sekcja wczytywania pliku, formularz dodawania pojedynczego) ... #}
+    {# Informacja o aktualnych zawodach #}
+    {% if session.get('current_zawody_nazwa') %} <p class="text-muted">Dla zawodów: <strong>{{ session['current_zawody_nazwa'] }}</strong></p> {% endif %}
     <hr>
+    {# Wczytywanie z pliku #}
+    <div class="card mb-4 shadow-sm"> <div class="card-header"><i class="bi bi-file-earmark-arrow-up-fill me-1"></i> Wczytaj z pliku (.txt)</div> <div class="card-body"><p class="card-text small text-muted">Plik .txt UTF-8 (1 zawodnik/linia).<br><strong>Uwaga:</strong> Zastąpi obecnych i zresetuje losowanie/wyniki.</p><form method="POST" action="{{ url_for('zawodnicy') }}" enctype="multipart/form-data"><div class="input-group"><input type="file" class="form-control form-control-sm" id="zawodnicyFile" name="zawodnicy_file" accept=".txt" required><button class="btn btn-info btn-sm" type="submit" id="uploadButton"><i class="bi bi-upload me-1"></i> Wczytaj i Zastąp</button></div><small class="form-text text-danger mt-1">Operacja nieodwracalna!</small></form></div> </div> <hr>
+    {# Dodawanie pojedynczego #}
+    <div class="card mb-4 shadow-sm"> <div class="card-header"><i class="bi bi-person-plus-fill me-1"></i> Dodaj zawodnika</div> <div class="card-body"><form method="POST" action="{{ url_for('zawodnicy') }}"> {{ form.hidden_tag() }} <div class="form-group mb-2"> {{ form.imie_nazwisko.label(class="form-label small") }} {{ form.imie_nazwisko(class="form-control form-control-sm" + (" is-invalid" if form.imie_nazwisko.errors else ""), placeholder="Imię i Nazwisko") }} {% if form.imie_nazwisko.errors %}<div class="invalid-feedback">{% for error in form.imie_nazwisko.errors %}<span>{{ error }}</span>{% endfor %}</div>{% endif %} </div> <button type="submit" class="btn btn-success btn-sm"><i class="bi bi-plus"></i> Dodaj</button> </form> </div> </div> <hr>
 
-    {# === SEKCJA WCZYTYWANIA Z PLIKU === #}
-    <div class="card mb-4 shadow-sm">
-        <div class="card-header">
-            <i class="bi bi-file-earmark-arrow-up-fill me-1"></i> Wczytaj zawodników z pliku (.txt)
-        </div>
-        <div class="card-body">
-            <p class="card-text small text-muted">
-                Wybierz plik tekstowy (.txt) zawierający listę zawodników (jedno imię i nazwisko w każdej linii). Kodowanie pliku powinno być UTF-8.
-                <br><strong>Uwaga:</strong> Wczytanie pliku <strong>zastąpi</strong> wszystkich obecnych zawodników (włącznie z pustymi miejscami) i <strong>zresetuje</strong> wyniki losowania oraz wyniki wagowe dla tych zawodów.
-            </p>
-            {# Nowy formularz do uploadu #}
-            <form method="POST" action="{{ url_for('zawodnicy') }}" enctype="multipart/form-data">
-                 {# Dodajemy ukryte pole lub inny sposób identyfikacji formularza, jeśli potrzebne #}
-                 {# LUB po prostu sprawdzimy obecność pliku w request.files w widoku #}
-                <div class="input-group">
-                    <input type="file" class="form-control" id="zawodnicyFile" name="zawodnicy_file" accept=".txt" required>
-                    <button class="btn btn-info" type="submit" id="uploadButton"><i class="bi bi-upload me-1"></i> Wczytaj i Zastąp</button>
-                </div>
-                 <small class="form-text text-danger mt-1">Operacja jest nieodwracalna dla listy zawodników!</small>
-            </form>
-        </div>
-    </div>
-    {# === KONIEC SEKCJI WCZYTYWANIA Z PLIKU === #}
-
-    <hr>
-
-    {# Formularz dodawania pojedynczego zawodnika (bez zmian) #}
-    <div class="card mb-4 shadow-sm">
-        <div class="card-header">
-             <i class="bi bi-person-plus-fill me-1"></i> Dodaj pojedynczego zawodnika
-        </div>
-        <div class="card-body">
-            <form method="POST" action="{{ url_for('zawodnicy') }}">
-                {{ form.hidden_tag() }} {# CSRF z formularza ZawodnikForm #}
-                 <div class="form-group mb-3">
-                    {{ form.imie_nazwisko.label(class="form-label") }}
-                    {{ form.imie_nazwisko(class="form-control" + (" is-invalid" if form.imie_nazwisko.errors else ""), placeholder="Imię i Nazwisko") }}
-                    {% if form.imie_nazwisko.errors %}
-                        <div class="invalid-feedback">
-                            {% for error in form.imie_nazwisko.errors %}<span>{{ error }}</span>{% endfor %}
-                        </div>
-                    {% endif %}
-                 </div>
-                {{ form.submit(class="btn btn-success") }} {# Przycisk z formularza ZawodnikForm #}
-            </form>
-        </div>
-    </div>
-
-    <hr>
-
-    {# Lista zawodników i formularz edycji (bez zmian w logice wyświetlania/edycji) #}
+    {# === SEKCJA LISTY ZAWODNIKÓW I EDYCJI === #}
     <h3>Obecna lista zawodników</h3>
-    {# Zakładam, że tu jest formularz obejmujący całą tabelę do edycji #}
     <form method="POST" action="{{ url_for('edytuj_zawodnikow') }}">
-         {# ... Twoja tabela z listą zawodników i polami input do edycji ... #}
-         {# Przykład wiersza (musisz dostosować do swojej implementacji tabeli): #}
-         {#
-         <tr>
-             <td>
-                 <input type="text" name="imie_nazwisko_{{ zawodnik.id }}" value="{{ zawodnik.imie_nazwisko or '' }}" class="form-control form-control-sm">
-             </td>
-             <td>
-                 <form action="{{ url_for('usun_zawodnika', id=zawodnik.id) }}" method="POST" style="display: inline;" onsubmit="...">
-                     <button type="submit" class="btn btn-danger btn-sm">Usuń</button>
-                 </form>
-             </td>
-         </tr>
-         #}
-         {# Przycisk zapisu zmian dla formularza edycji #}
-         <button type="submit" class="btn btn-warning mt-3"><i class="bi bi-pencil-square me-1"></i> Zapisz zmiany w liście</button>
+         {% if edit_form and edit_form.hidden_tag %} {{ edit_form.hidden_tag() }} {% elif csrf_token %} <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"> {% endif %}
+
+         <div class="table-responsive">
+            <table class="table table-striped table-bordered table-hover table-sm">
+                <thead class="thead-light">
+                    <tr>
+                        {# === NOWA KOLUMNA L.p. === #}
+                        <th scope="col" style="width: 5%;" class="text-center">L.p.</th>
+                        {# === KONIEC NOWEJ KOLUMNY === #}
+                        <th scope="col">Imię i Nazwisko (lub Puste) - Edytuj</th>
+                        <th scope="col" style="width: 5%;" class="text-center">Usuń</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if zawodnicy %}
+                        {% for zawodnik in zawodnicy %}
+                            <tr class="{{ 'table-light text-muted' if zawodnik.is_puste_miejsce else '' }}">
+                                {# === NOWA KOMÓRKA Z NUMEREM === #}
+                                {# loop.index zaczyna się od 1 #}
+                                <td class="text-center align-middle">{{ loop.index }}</td>
+                                {# === KONIEC NOWEJ KOMÓRKI === #}
+                                <td class="align-middle"> {# Zmieniono td dla nazwiska #}
+                                    <input type="text"
+                                           name="imie_nazwisko_{{ zawodnik.id }}"
+                                           value="{{ zawodnik.imie_nazwisko if not zawodnik.is_puste_miejsce else '' }}"
+                                           class="form-control form-control-sm"
+                                           placeholder="{{ 'Wpisz imię i nazwisko...' if zawodnik.is_puste_miejsce else '' }}">
+                                    {% if zawodnik.is_puste_miejsce %}
+                                        <small class="text-muted d-block">Aktualnie: Puste miejsce (ID: {{ zawodnik.id }})</small>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center align-middle">
+                                    <form action="{{ url_for('usun_zawodnika', id=zawodnik.id) }}" method="POST" style="display: inline;" onsubmit="return confirm('Czy na pewno usunąć \'{{ zawodnik.imie_nazwisko or 'Puste miejsce' | escape }}\' (ID: {{zawodnik.id}})?');">
+                                         {% if csrf_token %} <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"> {% endif %}
+                                        <button type="submit" class="btn btn-danger btn-sm" title="Usuń">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            {# === Zaktualizowano colspan === #}
+                            <td colspan="3" class="text-center text-muted">Brak zawodników na liście.</td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div> {# Koniec table-responsive #}
+
+        {% if zawodnicy %}
+        <button type="submit" class="btn btn-warning mt-3"><i class="bi bi-pencil-square me-1"></i> Zapisz zmiany w liście</button>
+        <small class="form-text text-muted d-block mt-1">Zapisuje zmiany nazwisk i statusów "Puste miejsce".</small>
+        {% endif %}
     </form>
+    {# === KONIEC SEKCJI LISTY ZAWODNIKÓW === #}
 
 {% endblock %}
