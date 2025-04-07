@@ -22,7 +22,15 @@ import re
 import os # Potrzebny do operacji na plikach/ścieżkach
 from werkzeug.utils import secure_filename # Dobra praktyka, choć mniej krytyczna dla .txt
 
+ALLOWED_EXTENSIONS = {'txt'}
 
+# <<< DEFINICJA FUNKCJI MUSI BYĆ TUTAJ >>>
+def allowed_file(filename):
+    """Sprawdza, czy nazwa pliku ma kropkę i dozwolone rozszerzenie."""
+    # Teraz funkcja "widzi" zmienną ALLOWED_EXTENSIONS zdefiniowaną powyżej
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    
 # =========================================
 # DEFINICJA DEKORATORA ROLE_REQUIRED (NA POCZĄTKU)
 # =========================================
@@ -607,184 +615,86 @@ def zawodnicy():
     Obsługuje wyświetlanie listy zawodników, dodawanie pojedynczego zawodnika
     oraz wczytywanie listy zawodników z pliku .txt (z czyszczeniem nazwisk).
     """
-    # Użyj loggera aplikacji lub standardowego loggera
     logger = current_app.logger if current_app else logging.getLogger(__name__)
     logger.debug(f"Accessing /zawodnicy route, method: {request.method}")
 
-    # Sprawdzenie, czy zawody są wybrane w sesji
     if 'current_zawody_id' not in session:
         flash('Najpierw wybierz lub utwórz zawody!', 'warning')
-        logger.warning("Access to /zawodnicy denied, no competition selected.")
         return redirect(url_for('zawody'))
 
     zawody_id = session['current_zawody_id']
-    logger.debug(f"Current competition ID from session: {zawody_id}") # LOG 1
-
-    # Sprawdzenie, czy wybrane zawody istnieją (na wypadek usunięcia w innej sesji)
-    # Używamy db.session.get() (zalecane w SQLAlchemy 2.x) lub Zawody.query.get() dla starszych
     aktywne_zawody = db.session.get(Zawody, zawody_id)
     if not aktywne_zawody:
-        session.pop('current_zawody_id', None)
-        session.pop('current_zawody_nazwa', None)
-        flash('Wybrane zawody już nie istnieją. Wybierz inne.', 'warning')
-        logger.warning(f"Current competition ID {zawody_id} in session does not exist in DB.")
-        return redirect(url_for('zawody'))
+        session.pop('current_zawody_id', None); session.pop('current_zawody_nazwa', None)
+        flash('Wybrane zawody już nie istnieją.', 'warning'); return redirect(url_for('zawody'))
 
-    # Formularz do dodawania pojedynczego zawodnika
-    form_add_single = ZawodnikForm()
+    form_add_single = ZawodnikForm() # Formularz do dodawania pojedynczego
 
     # --- Obsługa POST ---
     if request.method == 'POST':
-
         # --- SPRAWDZENIE 1: Czy to UPLOAD PLIKU? ---
         if 'zawodnicy_file' in request.files:
             logger.info(f"Processing file upload for competition {zawody_id} by admin {current_user.username}")
             file = request.files['zawodnicy_file']
+            if file.filename == '': flash('Nie wybrano pliku.', 'warning'); return redirect(request.url)
 
-            # Sprawdzenie, czy plik został wybrany
-            if file.filename == '':
-                flash('Nie wybrano żadnego pliku do wczytania.', 'warning')
-                return redirect(request.url) # Odśwież stronę
-
-            # Sprawdzenie rozszerzenia i czy plik istnieje
+            # Użycie funkcji allowed_file
             if file and allowed_file(file.filename):
-                zawodnicy_z_pliku = []
-                num_skipped_lines = 0 # Licznik pominiętych/pustych linii
+                zawodnicy_z_pliku, num_skipped_lines = [], 0
                 try:
-                    # Odczytaj zawartość pliku, dekodując jako UTF-8
                     content = file.stream.read().decode('utf-8')
-                    lines = content.splitlines() # Podziel na linie
-
+                    lines = content.splitlines()
                     for line_num, line in enumerate(lines, 1):
-                        original_line = line.strip() # Usuń białe znaki z brzegów
-                        if not original_line:
-                            num_skipped_lines += 1
-                            continue # Pomiń puste linie
-
-                        # === CZYSZCZENIE NAZWISKA ===
+                        original_line = line.strip()
+                        if not original_line: num_skipped_lines += 1; continue
                         name_no_digits = re.sub(r'\d+', '', original_line)
                         czyste_nazwisko = re.sub(r'[^A-Za-zĄąĆćĘęŁłŃńÓóŚśŹźŻż\s]+', '', name_no_digits).strip()
                         czyste_nazwisko = re.sub(r'\s{2,}', ' ', czyste_nazwisko).strip()
-                        # === KONIEC CZYSZCZENIA ===
-
-                        if czyste_nazwisko: # Jeśli coś zostało po czyszczeniu
+                        if czyste_nazwisko:
                             zawodnicy_z_pliku.append(czyste_nazwisko)
-                            if czyste_nazwisko != original_line:
-                                logger.debug(f"Line {line_num}: Cleaned '{original_line}' to '{czyste_nazwisko}'")
-                        else:
-                            logger.warning(f"Line {line_num}: Skipped '{original_line}' - empty after cleaning.")
-                            num_skipped_lines += 1
+                            if czyste_nazwisko != original_line: logger.debug(f"L{line_num}: Cleaned '{original_line}' to '{czyste_nazwisko}'")
+                        else: logger.warning(f"L{line_num}: Skipped '{original_line}'"); num_skipped_lines += 1
+                    if not zawodnicy_z_pliku: flash(f'Plik "{file.filename}" pusty lub bez nazwisk. Pominięto {num_skipped_lines} linii.', 'warning'); return redirect(request.url)
 
-                    if not zawodnicy_z_pliku:
-                         flash(f'Plik "{file.filename}" nie zawierał poprawnych nazwisk (po oczyszczeniu). Pominięto {num_skipped_lines} linii.', 'warning')
-                         return redirect(request.url)
-
-                    # === ZASTĘPOWANIE ZAWODNIKÓW W BAZIE (w transakcji) ===
-                    logger.warning(f"Replacing ALL competitors and resetting draw/results for comp {zawody_id} from file {file.filename}.")
-                    # Użycie with zapewnia automatyczny commit lub rollback
-                    try:
-                        with db.session.begin_nested(): # Lepsze zarządzanie transakcją
-                            WynikLosowania.query.filter_by(zawody_id=zawody_id).delete()
-                            Wynik.query.filter_by(zawody_id=zawody_id).delete()
-                            Zawodnik.query.filter_by(zawody_id=zawody_id).delete()
-                            logger.debug("Deleted existing draw, weight results, and competitors inside nested transaction.")
-
-                            nowi_zawodnicy_obj = [
-                                Zawodnik(imie_nazwisko=name, zawody_id=zawody_id, is_puste_miejsce=False)
-                                for name in zawodnicy_z_pliku
-                            ]
-                            if nowi_zawodnicy_obj:
-                                db.session.add_all(nowi_zawodnicy_obj)
-                                logger.debug(f"Prepared {len(nowi_zawodnicy_obj)} new competitors for commit.")
-                        # Jeśli blok with zakończył się bez błędu, nested commit jest gotowy
-                        db.session.commit() # Główny commit
-                        flash_msg = f'Pomyślnie wczytano i zastąpiono {len(zawodnicy_z_pliku)} zawodników z pliku "{file.filename}". Losowanie i wyniki zostały zresetowane.'
-                        if num_skipped_lines > 0: flash_msg += f' Pominięto {num_skipped_lines} pustych lub nieprawidłowych linii.'
-                        flash(flash_msg, 'success')
-                        logger.info(f"Successfully loaded {len(zawodnicy_z_pliku)} competitors from file for comp {zawody_id}. Skipped lines: {num_skipped_lines}.")
-                    except Exception as e: # Łapanie błędów wewnątrz transakcji
-                        # Rollback jest automatyczny dzięki with db.session.begin_nested(), ale logujemy błąd
-                        logger.error(f"Error during database operations for file upload (comp {zawody_id}): {e}", exc_info=True)
-                        flash(f'Wystąpił błąd bazy danych podczas przetwarzania pliku: {e}', 'danger')
-                        # Nie potrzebujemy tu db.session.rollback(), bo `with` to obsłużył
-
-                except UnicodeDecodeError:
-                     # Ten błąd występuje poza transakcją DB
-                     logger.error(f"File encoding error for comp {zawody_id}, file {file.filename}. Make sure it's UTF-8.", exc_info=True)
-                     flash('Błąd dekodowania pliku. Upewnij się, że plik jest zapisany w kodowaniu UTF-8.', 'danger')
-                except Exception as e:
-                     # Inne błędy poza transakcją DB
-                     logger.error(f"Unexpected error processing uploaded file for comp {zawody_id}: {e}", exc_info=True)
-                     flash(f'Wystąpił nieoczekiwany błąd podczas przetwarzania pliku: {e}', 'danger')
-
-                return redirect(url_for('zawodnicy')) # Przekieruj ZAWSZE po próbie uploadu
-
+                    logger.warning(f"Replacing ALL competitors/draw/results for {zawody_id} from {file.filename}.")
+                    with db.session.begin_nested():
+                        WynikLosowania.query.filter_by(zawody_id=zawody_id).delete()
+                        Wynik.query.filter_by(zawody_id=zawody_id).delete()
+                        Zawodnik.query.filter_by(zawody_id=zawody_id).delete()
+                        nowi_zawodnicy_obj = [Zawodnik(imie_nazwisko=n, zawody_id=zawody_id) for n in zawodnicy_z_pliku]
+                        if nowi_zawodnicy_obj: db.session.add_all(nowi_zawodnicy_obj)
+                    db.session.commit()
+                    flash_msg = f'Wczytano {len(zawodnicy_z_pliku)} zawodników z "{file.filename}". Stara lista, losowanie i wyniki zostały usunięte.';
+                    if num_skipped_lines > 0: flash_msg += f' Pominięto {num_skipped_lines} linii.'
+                    flash(flash_msg, 'success'); logger.info(f"Loaded {len(zawodnicy_z_pliku)} for {zawody_id}. Skipped: {num_skipped_lines}.")
+                except UnicodeDecodeError: db.session.rollback(); logger.error(f"File encoding error: {file.filename}", exc_info=True); flash('Błąd kodowania pliku (użyj UTF-8).', 'danger')
+                except SQLAlchemyError as db_err: db.session.rollback(); logger.error(f"DB error processing file: {db_err}", exc_info=True); flash(f'Błąd bazy: {db_err}', 'danger')
+                except Exception as e: db.session.rollback(); logger.error(f"Error processing file: {e}", exc_info=True); flash(f'Nieoczekiwany błąd: {e}', 'danger')
+                return redirect(url_for('zawodnicy'))
             else:
-                # Plik nie istnieje lub ma złe rozszerzenie
-                flash('Niedozwolony typ pliku. Akceptowane są tylko pliki .txt', 'warning')
-                return redirect(request.url)
+                flash('Niedozwolony typ pliku (tylko .txt)', 'warning'); return redirect(request.url)
 
-        # --- SPRAWDZENIE 2: Czy to formularz dodawania POJEDYNCZEGO zawodnika? ---
+        # --- SPRAWDZENIE 2: Dodawanie pojedynczego ---
         elif form_add_single.validate_on_submit():
-            logger.info(f"Processing single competitor add for competition {zawody_id} by admin {current_user.username}")
-            nowy_zawodnik = Zawodnik(imie_nazwisko=form_add_single.imie_nazwisko.data.strip(), zawody_id=zawody_id)
-            db.session.add(nowy_zawodnik)
-            try:
-                # Dodanie NOWEGO zawodnika NADAL resetuje losowanie i wyniki
-                logger.warning(f"Resetting draw and weight results due to adding single competitor '{nowy_zawodnik.imie_nazwisko}' to competition {zawody_id}.")
-                WynikLosowania.query.filter_by(zawody_id=zawody_id).delete()
-                Wynik.query.filter_by(zawody_id=zawody_id).delete()
-                db.session.commit()
-                flash(f'Zawodnik "{nowy_zawodnik.imie_nazwisko}" dodany! UWAGA: Wyniki losowania i wyniki wagowe zostały zresetowane dla wszystkich.', 'warning')
-            except SQLAlchemyError as db_err: # Lepsze łapanie błędów DB
-                db.session.rollback()
-                logger.error(f"Database error adding single competitor '{form_add_single.imie_nazwisko.data}' to comp {zawody_id}: {db_err}", exc_info=True)
-                flash(f'Błąd bazy danych podczas dodawania zawodnika: {db_err}', 'danger')
-            except Exception as e:
-                db.session.rollback()
-                logger.error(f"Error adding single competitor '{form_add_single.imie_nazwisko.data}' to comp {zawody_id}: {e}", exc_info=True)
-                flash(f'Błąd podczas dodawania zawodnika: {e}', 'danger')
-            return redirect(url_for('zawodnicy')) # Redirect po dodaniu
-
-        # Jeśli POST, ale nie upload i nie poprawny formularz dodawania (np. błąd walidacji form_add_single)
-        elif request.method == 'POST':
-             logger.warning(f"POST request to /zawodnicy was not a valid file upload or single add form submission. Single form errors: {form_add_single.errors}")
-             # Nie przekierowuj, pozwól render_template poniżej wyświetlić błędy formularza form_add_single
-
+            logger.info(f"Adding single competitor for {zawody_id}"); nowy = Zawodnik(imie_nazwisko=form_add_single.imie_nazwisko.data.strip(), zawody_id=zawody_id); db.session.add(nowy)
+            try: logger.warning(f"Resetting draw/results for add '{nowy.imie_nazwisko}'."); WynikLosowania.query.filter_by(zawody_id=zawody_id).delete(); Wynik.query.filter_by(zawody_id=zawody_id).delete(); db.session.commit(); flash(f'Zawodnik "{nowy.imie_nazwisko}" dodany! UWAGA: Losowanie/wyniki zresetowane.', 'warning')
+            except Exception as e: db.session.rollback(); logger.error(f"Error adding single: {e}", exc_info=True); flash(f'Błąd dodawania: {e}', 'danger')
+            return redirect(url_for('zawodnicy'))
+        elif request.method == 'POST': logger.warning(f"Invalid POST /zawodnicy. Form errors: {form_add_single.errors}")
 
     # --- Obsługa GET ---
-    # Pobierz listę zawodników DO WYŚWIETLENIA (teraz powinna być aktualna po redirect)
-    logger.debug(f"Handling GET request for /zawodnicy, competition ID: {zawody_id}") # LOG 2
+    logger.debug(f"Handling GET request for /zawodnicy, competition ID: {zawody_id}")
     zawodnicy_lista = []
     try:
-        # --- === KLUCZOWE ZAPYTANIE === ---
-        zawodnicy_lista = Zawodnik.query.filter_by(zawody_id=zawody_id)\
-            .order_by(Zawodnik.is_puste_miejsce.asc(), Zawodnik.imie_nazwisko.asc())\
-            .all()
-        # --- === KONIEC ZAPYTANIA === ---
-
-        # --- === Logi debugowe === ---
-        logger.info(f"Fetched {len(zawodnicy_lista)} competitors from DB for competition ID: {zawody_id}.") # LOG 3 (Użyj INFO dla pewności)
+        zawodnicy_lista = Zawodnik.query.filter_by(zawody_id=zawody_id).order_by(Zawodnik.is_puste_miejsce.asc(), Zawodnik.imie_nazwisko.asc()).all()
+        logger.info(f"Fetched {len(zawodnicy_lista)} competitors from DB for competition ID: {zawody_id}.")
         if zawodnicy_lista:
-             # Poprawiony log, używa pojedynczych cudzysłowów wewnątrz f-stringa
              competitor_info = [f"{z.id}:{z.imie_nazwisko or 'Puste'}" for z in zawodnicy_lista[:5]]
-             logger.debug(f"First few competitors fetched: {competitor_info}") # LOG 4
-        else:
-            logger.warning(f"No competitors found in DB for competition ID: {zawody_id}") # LOG 5
-        # --- === Koniec logów === ---
+             logger.debug(f"First few competitors fetched: {competitor_info}")
+        else: logger.warning(f"No competitors found in DB for competition ID: {zawody_id}")
+    except Exception as e: logger.error(f"Error fetching list (GET): {e}", exc_info=True); flash(f"Błąd listy: {e}", "danger"); zawodnicy_lista = []
 
-    except KeyError: # Ten błąd jest już obsłużony na początku funkcji GET
-         # Można usunąć ten blok, jeśli jest już obsłużony wyżej
-         logger.error("Error fetching competitor list: 'current_zawody_id' not found in session during GET.")
-         flash("Błąd sesji: Nie wybrano aktywnych zawodów.", "danger")
-         return redirect(url_for('zawody'))
-    except Exception as e:
-         logger.error(f"Error fetching competitor list for comp {zawody_id} (GET): {e}", exc_info=True)
-         flash(f"Błąd podczas pobierania listy zawodników: {e}", "danger")
-         zawodnicy_lista = [] # Zwróć pustą listę w razie błędu
-
-    # Przekaż form_add_single (może zawierać błędy z POST) i pobraną listę zawodników
-    logger.debug(f"Rendering zawodnicy.html with {len(zawodnicy_lista)} competitors.") # LOG 6
+    logger.debug(f"Rendering zawodnicy.html with {len(zawodnicy_lista)} competitors.")
     return render_template('zawodnicy.html', form=form_add_single, zawodnicy=zawodnicy_lista)
 
 @app.route('/edytuj_zawodnikow', methods=['POST'])
