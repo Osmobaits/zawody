@@ -575,33 +575,28 @@ def index():
 def admin_panel():
     return render_template('admin.html')
 
+# === Trasa /users ===
 @app.route('/users')
 @login_required
-@role_required('admin')
+@role_required('admin') # Tylko admin widzi listę użytkowników
 def user_list():
+    """ Wyświetla listę wszystkich użytkowników z opcją usunięcia (z zabezpieczeniami). """
+    logger = current_app.logger if current_app else logging.getLogger(__name__)
+    logger.debug("Accessing /users route")
+    users = [] # Inicjalizacja na wypadek błędu
     try:
-        users = User.query.order_by(User.username).all()
+        # Pobierz wszystkich użytkowników posortowanych alfabetycznie
+        users = User.query.order_by(User.username.asc()).all()
+        logger.info(f"Fetched {len(users)} users for the list.")
     except Exception as e:
+        logger.error(f"Error fetching user list: {e}", exc_info=True)
         flash(f"Błąd podczas pobierania listy użytkowników: {e}", "danger")
-        users = []
-    return render_template('user_list.html', users=users)
+        users = [] # Zwróć pustą listę w razie błędu
 
-# app/routes.py
-
-# ... (importy: Flask, render_template, request, redirect, url_for, flash, session, db, ...)
-# ... (importy: Zawodnik, Zawody, WynikLosowania, Wynik)
-# ... (importy: ZawodnikForm)
-# ... (import logger)
-import os # Potrzebny do operacji na plikach/ścieżkach
-from werkzeug.utils import secure_filename # Dobra praktyka, choć mniej krytyczna dla .txt
-
-# === Funkcja pomocnicza do sprawdzania rozszerzeń ===
-ALLOWED_EXTENSIONS = {'txt'}
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-# === Dekorator role_required (zakładam, że jest zdefiniowany wcześniej w pliku) ===
-# def role_required(role): ...
+    # === Przekazanie pustego formularza dla CSRF ===
+    # Użyjemy metody hidden_tag() tego formularza w szablonie wewnątrz małych form usuwania
+    csrf_form = FlaskForm()
+    return render_template('user_list.html', users=users, csrf_form=csrf_form)
 
 # === Trasa /zawodnicy ===
 @app.route('/zawodnicy', methods=['GET', 'POST'])
@@ -2460,8 +2455,67 @@ def public_lista_zawodow():
                            zawody_lista=zawody_lista,
                            error_message=error_message)
 
-# ==========================================================
-# === KONIEC PUBLICZNEJ LISTY ===
-# ==========================================================
+# === Trasa /delete_user/<int:user_id> ===
+@app.route('/delete_user/<int:user_id>', methods=['POST']) # Tylko metoda POST
+@login_required
+@role_required('admin') # Tylko admin może usuwać
+def delete_user(user_id):
+    """ Usuwa użytkownika o podanym ID (z zabezpieczeniami). """
+    logger = current_app.logger if current_app else logging.getLogger(__name__)
 
-# ... (reszta tras) ...
+    # === Walidacja CSRF (Automatyczna przez Flask-WTF/CSRFProtect) ===
+    # Flask-WTF automatycznie sprawdzi token wysłany z {{ csrf_form.hidden_tag() }}
+    # Nie potrzebujemy tutaj ręcznej walidacji validate_csrf(), jeśli CSRFProtect(app) jest aktywne.
+    # Jeśli jednak NIE używasz globalnego CSRFProtect, musisz ręcznie dodać i sprawdzić token.
+
+    # Zabezpieczenie: Admin nie może usunąć samego siebie
+    if user_id == current_user.id:
+        flash('Nie możesz usunąć własnego konta!', 'danger')
+        logger.warning(f"Admin {current_user.username} attempted to delete their own account (ID: {user_id}).")
+        return redirect(url_for('user_list'))
+
+    # Pobierz użytkownika do usunięcia
+    # Używamy db.session.get dla zgodności z SQLAlchemy 2+
+    user_to_delete = db.session.get(User, user_id)
+
+    # Sprawdź, czy użytkownik istnieje
+    if not user_to_delete:
+        flash(f'Nie znaleziono użytkownika o ID {user_id} do usunięcia.', 'warning')
+        return redirect(url_for('user_list'))
+
+    # Zabezpieczenie: Nie można usunąć admina z ID 1
+    is_protected = False
+    if user_to_delete.id == 1 and user_to_delete.role == 'admin':
+        is_protected = True
+        flash('Nie można usunąć głównego administratora (ID 1)!', 'danger')
+        logger.warning(f"Admin {current_user.username} attempted to delete protected admin ID 1.")
+
+    # Można dodać tu inne reguły ochrony, jeśli potrzeba (np. blokowanie usuwania innych adminów)
+    # elif user_to_delete.role == 'admin':
+    #     is_protected = True
+    #     flash(...)
+    #     logger.warning(...)
+
+    if is_protected:
+        return redirect(url_for('user_list')) # Przekieruj, jeśli użytkownik jest chroniony
+
+    # Jeśli można usunąć, kontynuuj
+    username_deleted = user_to_delete.username # Zapisz nazwę dla komunikatu
+    try:
+        # Użyj transakcji dla bezpieczeństwa
+        with db.session.begin_nested(): # Lub db.session.begin()
+            db.session.delete(user_to_delete)
+        db.session.commit() # Zatwierdź usunięcie
+        flash(f'Użytkownik "{username_deleted}" został pomyślnie usunięty.', 'success')
+        logger.info(f"Admin {current_user.username} deleted user '{username_deleted}' (ID: {user_id}).")
+    except SQLAlchemyError as db_err: # Łap błędy DB
+        db.session.rollback()
+        logger.error(f"Database error deleting user ID {user_id}: {db_err}", exc_info=True)
+        flash(f'Wystąpił błąd bazy danych podczas usuwania użytkownika: {db_err}', 'danger')
+    except Exception as e: # Łap inne błędy
+        db.session.rollback()
+        logger.error(f"Error deleting user ID {user_id}: {e}", exc_info=True)
+        flash(f'Wystąpił nieoczekiwany błąd podczas usuwania użytkownika: {e}', 'danger')
+
+    # Zawsze przekieruj z powrotem do listy użytkowników
+    return redirect(url_for('user_list'))
