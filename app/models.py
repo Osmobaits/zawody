@@ -68,7 +68,7 @@ class UstawieniaZawodow(db.Model):
     MAX_ZAWODNIKOW = 120
     MAX_STREF = 4
     MAX_SEKTOROW = 12
-    MAX_STANOWISK = 12
+    MAX_STANOWISK = 84
     MAX_TUR = 4
 
     def __repr__(self):
