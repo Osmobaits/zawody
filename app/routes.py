@@ -122,8 +122,6 @@ except Exception as e:
     print(f"ERROR: Falling back to default ReportLab fonts.")
     DEFAULT_FONT_NAME = 'Helvetica' # Ustawienie fallbacku w razie błędu
 
-# === Koniec Rejestracji Czcionek ===
-
 ALLOWED_EXTENSIONS = {'txt'}
 
 # <<< DEFINICJA FUNKCJI MUSI BYĆ TUTAJ >>>
