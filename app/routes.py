@@ -21,6 +21,104 @@ from sqlalchemy import desc
 import re 
 import os # Potrzebny do operacji na plikach/ścieżkach
 from werkzeug.utils import secure_filename # Dobra praktyka, choć mniej krytyczna dla .txt
+from flask import jsonify 
+from sqlalchemy.orm import joinedload # Dla eager loading
+from sqlalchemy.exc import SQLAlchemyError # Do łapania błędów DB
+from sqlalchemy import desc
+import re 
+import os # Potrzebny do operacji na plikach/ścieżkach
+from werkzeug.utils import secure_filename # Dobra praktyka, choć mniej krytyczna dla .txt
+
+# === Importy dla ReportLab ===
+from reportlab.lib.pagesizes import letter, A4, landscape
+# === POPRAWKA: Dodaj KeepTogether ===
+from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle, Spacer,
+                              Paragraph, PageBreak, KeepTogether)
+# === KONIEC POPRAWKI ===
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.units import inch, cm
+
+# === Rejestracja czcionek Roboto dla ReportLab ===
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+import os
+import logging # Potrzebny logging
+
+# Ścieżka do folderu z czcionkami
+# Zakładamy, że routes.py jest w folderze 'app', a 'fonts' jest obok 'app'
+APP_DIR = os.path.dirname(__file__)
+FONT_FOLDER = os.path.abspath(os.path.join(APP_DIR, '..', 'fonts')) # Użyj ścieżki absolutnej
+
+print(f"INFO: Attempting to register fonts from folder: {FONT_FOLDER}") # Loguj ścieżkę
+
+# Nazwy plików - SPRAWDŹ DOKŁADNIE!
+ROBOTO_REGULAR_FILE = 'Roboto-Regular.ttf'
+ROBOTO_BOLD_FILE = 'Roboto-Bold.ttf'       # Najczęściej tak się nazywa
+ROBOTO_ITALIC_FILE = 'Roboto-Italic.ttf'
+ROBOTO_BOLDITALIC_FILE = 'Roboto-BoldItalic.ttf'
+# ROBOTO_BLACK_FILE = 'Roboto-Black.ttf'   # Jeśli potrzebujesz
+
+# Nazwy rejestrowane w ReportLab
+ROBOTO_REGULAR = 'Roboto'
+ROBOTO_BOLD = 'Roboto-Bold'
+ROBOTO_ITALIC = 'Roboto-Italic'
+ROBOTO_BOLDITALIC = 'Roboto-BoldItalic'
+# ROBOTO_BLACK = 'Roboto-Black'
+
+DEFAULT_FONT_NAME = 'Helvetica' # Domyślna na wypadek błędu
+
+try:
+    fonts_registered = 0
+    # Rejestracja Normal
+    font_path = os.path.join(FONT_FOLDER, ROBOTO_REGULAR_FILE)
+    if os.path.exists(font_path):
+        pdfmetrics.registerFont(TTFont(ROBOTO_REGULAR, font_path))
+        fonts_registered += 1
+    else: print(f"WARN: Font file not found: {font_path}")
+
+    # Rejestracja Bold
+    font_path = os.path.join(FONT_FOLDER, ROBOTO_BOLD_FILE)
+    if os.path.exists(font_path):
+        pdfmetrics.registerFont(TTFont(ROBOTO_BOLD, font_path))
+        fonts_registered += 1
+    else: print(f"WARN: Font file not found: {font_path}")
+
+    # Rejestracja Italic
+    font_path = os.path.join(FONT_FOLDER, ROBOTO_ITALIC_FILE)
+    if os.path.exists(font_path):
+        pdfmetrics.registerFont(TTFont(ROBOTO_ITALIC, font_path))
+        fonts_registered += 1
+    else: print(f"WARN: Font file not found: {font_path}")
+
+    # Rejestracja BoldItalic
+    font_path = os.path.join(FONT_FOLDER, ROBOTO_BOLDITALIC_FILE)
+    if os.path.exists(font_path):
+        pdfmetrics.registerFont(TTFont(ROBOTO_BOLDITALIC, font_path))
+        fonts_registered += 1
+    else: print(f"WARN: Font file not found: {font_path}")
+
+    # Rejestruj rodzinę tylko jeśli udało się zarejestrować przynajmniej podstawowy krój
+    if ROBOTO_REGULAR in pdfmetrics.getRegisteredFontNames():
+        pdfmetrics.registerFontFamily(
+            ROBOTO_REGULAR,
+            normal=ROBOTO_REGULAR,
+            bold=ROBOTO_BOLD if ROBOTO_BOLD in pdfmetrics.getRegisteredFontNames() else ROBOTO_REGULAR, # Fallback na regular, jeśli bold nie ma
+            italic=ROBOTO_ITALIC if ROBOTO_ITALIC in pdfmetrics.getRegisteredFontNames() else ROBOTO_REGULAR,
+            boldItalic=ROBOTO_BOLDITALIC if ROBOTO_BOLDITALIC in pdfmetrics.getRegisteredFontNames() else ROBOTO_REGULAR
+        )
+        DEFAULT_FONT_NAME = ROBOTO_REGULAR # Ustaw Roboto jako domyślną
+        print(f"INFO: Roboto font family registered. Registered styles: {fonts_registered}. Default: {DEFAULT_FONT_NAME}")
+    else:
+         raise ValueError("Failed to register base Roboto font (Roboto-Regular.ttf).")
+
+except Exception as e:
+    print(f"ERROR: Could not register Roboto fonts: {e}. Polish characters in PDF might not work.")
+    print(f"ERROR: Falling back to default ReportLab fonts.")
+    DEFAULT_FONT_NAME = 'Helvetica' # Ustawienie fallbacku w razie błędu
+
+# === Koniec Rejestracji Czcionek ===
 
 ALLOWED_EXTENSIONS = {'txt'}
 
