@@ -1444,80 +1444,128 @@ def wyniki_losowania():
                            max_stanowisko=max_global_stanowisko)
 
 
+# === Trasa generowania PDF (z czcionkami Roboto) ===
 @app.route('/generuj_pdf/<int:tura>')
 @login_required
 def generuj_pdf(tura):
-    if 'current_zawody_id' not in session:
-        flash('Najpierw wybierz zawody!', 'error')
-        return redirect(url_for('zawody'))
+    """
+    Generuje PDF z listą startową i miejscem na wyniki dla podanej tury,
+    grupując po strefach (max 2 sektory na strefę/stronę), używając czcionek Roboto.
+    """
+    logger = current_app.logger if current_app else logging.getLogger(__name__)
+    logger.info(f">>> Generating PDF (Roboto fonts) for R:{tura} by {current_user.username}")
 
-    zawody_id = session['current_zawody_id']
-    zawody = Zawody.query.get_or_404(zawody_id)
+    # --- Sprawdzenie sesji i danych zawodów ---
+    if 'current_zawody_id' not in session: flash('Wybierz zawody!', 'error'); return redirect(url_for('wyniki_losowania'))
+    zawody_id = session['current_zawody_id']; zawody = db.session.get(Zawody, zawody_id)
     ustawienia = UstawieniaZawodow.query.filter_by(zawody_id=zawody_id).first()
+    if not zawody: flash("Nie znaleziono zawodów.", 'error'); return redirect(url_for('zawody'))
+    if not ustawienia: flash("Brak ustawień.", "error"); return redirect(url_for('ustawienia'))
+    if not (1 <= tura <= ustawienia.liczba_tur): flash(f'Zła tura ({tura}).', 'error'); return redirect(url_for('wyniki_losowania'))
 
-    if not ustawienia or tura < 1 or tura > ustawienia.liczba_tur:
-        flash('Nieprawidłowy numer tury lub brak ustawień.', 'error')
-        return redirect(url_for('wyniki_losowania'))
-
-    wyniki_q = WynikLosowania.query.options(db.joinedload(WynikLosowania.zawodnik)).filter_by(zawody_id=zawody_id).all()
-
-    def get_sort_key(wynik):
-        stanowisko = getattr(wynik, f'tura{tura}_stanowisko', None)
-        return (stanowisko is None, stanowisko)
-    wyniki_q.sort(key=get_sort_key)
-
-    dane_do_tabeli = [["Nr Start.", "Zawodnik", "Strefa", "Sektor", "Stanowisko"]]
-    for i, wynik in enumerate(wyniki_q):
-        nr_startowy = i + 1
-        imie_nazwisko = "Puste Miejsce"
-        if wynik.zawodnik and not wynik.zawodnik.is_puste_miejsce:
-             imie_nazwisko = wynik.zawodnik.imie_nazwisko
-
-        strefa = getattr(wynik, f'tura{tura}_strefa', '') or '?'
-        sektor = getattr(wynik, f'tura{tura}_sektor', '') or '?'
-        stanowisko_val = getattr(wynik, f'tura{tura}_stanowisko', None)
-        stanowisko = str(stanowisko_val) if stanowisko_val is not None else '?'
-
-        dane_do_tabeli.append([str(nr_startowy), imie_nazwisko, strefa, sektor, stanowisko])
-
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter)
-    story = []
-    styles = getSampleStyleSheet()
-    tytul_str = f"Lista Startowa - {zawody.nazwa} - Tura {tura}"
-    story.append(Paragraph(tytul_str, styles['h1']))
-    story.append(Spacer(1, 12))
-
-    tabela = Table(dane_do_tabeli)
-    style = TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('TOPPADDING', (0, 1), (-1,-1), 6),
-        ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-    ])
-    tabela.setStyle(style)
-    story.append(tabela)
-
+    # --- Pobranie Danych ---
     try:
+        wyniki_los_q = WynikLosowania.query.options(joinedload(WynikLosowania.zawodnik)).filter(WynikLosowania.zawody_id == zawody_id).all()
+        if not wyniki_los_q: flash(f"Brak wyników losowania.", "warning"); return redirect(url_for('wyniki_losowania'))
+        wyniki_wag_q = Wynik.query.filter_by(zawody_id=zawody_id, tura=tura).all()
+        mapa_wynikow_wag = {w.zawodnik_id: {'waga': w.waga, 'bigfish': w.bigfish} for w in wyniki_wag_q}
+    except Exception as e: logger.error(f"PDF Data fetch error T{tura}: {e}", exc_info=True); flash(f"Błąd danych: {e}", "danger"); return redirect(url_for('wyniki_losowania'))
+
+    # --- Grupowanie Danych ---
+    strefa_attr, sektor_attr, stanowisko_attr = f'tura{tura}_strefa', f'tura{tura}_sektor', f'tura{tura}_stanowisko'
+    dane_pogrupowane = defaultdict(lambda: defaultdict(list)); zawodnicy_bez = []
+    for wl in wyniki_los_q:
+        s, sek, st, zid = getattr(wl, strefa_attr, None), getattr(wl, sektor_attr, None), getattr(wl, stanowisko_attr, None), wl.zawodnik_id
+        im, puste = ("Puste Miejsce", True) if not wl.zawodnik or wl.zawodnik.is_puste_miejsce else (wl.zawodnik.imie_nazwisko, False)
+        wag = mapa_wynikow_wag.get(zid, {'waga': None, 'bigfish': None})
+        dane_z = {'id': zid, 'imie_nazwisko': im, 'stanowisko': st, 'strefa': s, 'sektor': sek, 'is_puste': puste, 'waga': wag.get('waga'), 'big_fish': wag.get('bigfish')}
+        if s and sek: dane_pogrupowane[s][sek].append(dane_z)
+        else:
+            if not puste: logger.warning(f"PDF T{tura}: Competitor '{im}' (ID:{zid}) no zone/sector.")
+            zawodnicy_bez.append(dane_z)
+    posort_strefy = sorted(dane_pogrupowane.keys(), key=lambda x: int(x) if x.isdigit() else float('inf'))
+    if not posort_strefy: flash(f"Brak zawodników ze strefą/sektorem T{tura}.", "warning"); return redirect(url_for('wyniki_losowania'))
+
+    # --- Generowanie PDF ---
+    buffer = io.BytesIO(); story = []
+    try:
+        page_size = A4; doc = SimpleDocTemplate(buffer, pagesize=page_size, leftMargin=1.5*cm, rightMargin=1.5*cm, topMargin=1.5*cm, bottomMargin=1.5*cm)
+        styles = getSampleStyleSheet()
+
+        # === UŻYCIE CZCIONEK ROBOTO W STYLACH ===
+        font_reg = ROBOTO_REGULAR # Nazwa zarejestrowana dla Roboto-Regular.ttf
+        font_bold = ROBOTO_BOLD   # Nazwa zarejestrowana dla Roboto-Bold.ttf (lub -SemiBold)
+        font_italic = ROBOTO_ITALIC # Nazwa zarejestrowana dla Roboto-Italic.ttf
+        # font_black = ROBOTO_BLACK # Jeśli chcesz użyć najgrubszej wersji
+
+        naglowek_strefy_style = ParagraphStyle(name='NaglowekStrefy', parent=styles['h2'], alignment=TA_CENTER, spaceAfter=10, fontSize=14, fontName=font_bold) # Użyj Bold
+        naglowek_sektora_style = ParagraphStyle(name='NaglowekSektora', parent=styles['h3'], alignment=TA_LEFT, spaceBefore=8, spaceAfter=4, fontSize=11, fontName=font_bold) # Użyj Bold
+        common_cell_style = ParagraphStyle(name='CommonCell', parent=styles['Normal'], alignment=TA_CENTER, fontSize=9, leading=14, fontName=font_reg) # Użyj Regular
+        zawodnik_style_pdf = ParagraphStyle(name='ZawodStylePDF', parent=common_cell_style, alignment=TA_LEFT, fontName=font_reg) # Użyj Regular
+        # Styl dla kursywy w pustych miejscach
+        puste_miejsce_style = ParagraphStyle(name='PusteStyle', parent=zawodnik_style_pdf, fontName=font_italic) # Użyj Italic
+
+        # Styl tabeli z czcionkami Roboto
+        style_tabeli = TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue), ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, 0), 'CENTER'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('FONTNAME', (0, 0), (-1, 0), font_bold), # <<< CZCIONKA NAGŁÓWKA
+            ('FONTSIZE', (0, 0), (-1, 0), 10), ('BOTTOMPADDING', (0, 0), (-1, 0), 8), ('TOPPADDING', (0, 0), (-1, 0), 8),
+            ('FONTNAME', (0, 1), (-1, -1), font_reg), # <<< CZCIONKA DANYCH
+            ('FONTSIZE', (0, 1), (-1, -1), 9), ('TOPPADDING', (0, 1), (-1, -1), 8), ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.darkgrey), ('BOX', (0, 0), (-1, -1), 1, colors.black),
+        ])
+        # === KONIEC UŻYCIA CZCIONEK ROBOTO ===
+
+        first_page = True
+        for strefa in posort_strefy:
+            sektory_w_strefie = dane_pogrupowane[strefa]
+            posort_sektory_w_strefie = sorted(sektory_w_strefie.keys())
+            sektory_do_wyswietlenia = posort_sektory_w_strefie[:2]
+            if not sektory_do_wyswietlenia: continue
+            if not first_page: story.append(PageBreak())
+            else: first_page = False
+            naglowek_str_strefa = f"{zawody.nazwa} - Tura {tura}<br/>Strefa: {strefa}"; story.append(Paragraph(naglowek_str_strefa, naglowek_strefy_style)); story.append(Spacer(1, 0.1*inch))
+            elementy_strefy = []
+            for sektor in sektory_do_wyswietlenia:
+                zawodnicy = sektory_w_strefie.get(sektor, [])
+                if not zawodnicy: continue
+                zawodnicy.sort(key=lambda z: (z['stanowisko'] is None, z['stanowisko'] if z['stanowisko'] is not None else float('inf')))
+                elementy_strefy.append(Spacer(1, 0.15*inch)); elementy_strefy.append(Paragraph(f"Sektor: {sektor}", naglowek_sektora_style)); elementy_strefy.append(Spacer(1, 0.05*inch))
+                dane_tabeli = [["Zawodnik", "Stan.", "Waga (g)", "Big Fish (g)"]]; style_commands = []
+                for i, zaw in enumerate(zawodnicy):
+                    row_idx = i + 1
+                    # Użyj odpowiedniego stylu Paragraph dla pustych miejsc
+                    zaw_cell = Paragraph(zaw['imie_nazwisko'], puste_miejsce_style if zaw['is_puste'] else zawodnik_style_pdf)
+                    stan_cell = Paragraph(str(zaw['stanowisko']) if zaw['stanowisko'] is not None else '?', common_cell_style)
+                    waga_cell = Paragraph(str(zaw['waga']) if zaw['waga'] is not None else '', common_cell_style)
+                    bf_cell = Paragraph(str(zaw['big_fish']) if zaw['big_fish'] is not None else '', common_cell_style)
+                    dane_tabeli.append([zaw_cell, stan_cell, waga_cell, bf_cell])
+                    if zaw['is_puste']: style_commands.append(('TEXTCOLOR', (0, row_idx), (-1, row_idx), colors.darkgrey)); style_commands.append(('BACKGROUND', (0, row_idx), (-1, row_idx), colors.Color(0.92,0.92,0.92)))
+                col_widths = [6.0*cm, 2.0*cm, 4.0*cm, 6.0*cm] # Dostosuj
+                tabela = Table(dane_tabeli, colWidths=col_widths)
+                final_style = TableStyle(style_tabeli.getCommands() + style_commands)
+                tabela.setStyle(final_style); elementy_strefy.append(tabela)
+            story.append(KeepTogether(elementy_strefy))
+
+        # Strona dla zawodników bez strefy/sektora (jeśli chcesz)
+        if zawodnicy_bez:
+             story.append(PageBreak()); story.append(Paragraph(f"{zawody.nazwa} - Tura {tura}<br/>Bez strefy/sektora", naglowek_strefy_style)); story.append(Spacer(1, 0.2*inch))
+             dane_b = [["Zawodnik", "Stanowisko", "Waga (g)", "Big Fish (g)"]]; style_cb = []
+             for i, zaw in enumerate(sorted(zawodnicy_bez, key=lambda z: z['imie_nazwisko'])):
+                  row_idx = i + 1; zt = zaw['imie_nazwisko']; wt = str(zaw['waga']) if zaw['waga'] is not None else ''; bt = str(zaw['big_fish']) if zaw['big_fish'] is not None else ''
+                  zc = Paragraph(zt, puste_miejsce_style if zaw['is_puste'] else zawodnik_style_pdf); sc = Paragraph(str(zaw['stanowisko']) if zaw['stanowisko'] is not None else '?', common_cell_style); wc = Paragraph(wt, common_cell_style); bc = Paragraph(bt, common_cell_style)
+                  dane_b.append([zc, sc, wc, bc])
+                  if zaw['is_puste']: style_cb.append(('TEXTCOLOR',(0,row_idx),(-1,row_idx),colors.darkgrey)); style_cb.append(('BACKGROUND',(0,row_idx),(-1,row_idx),colors.Color(0.92,0.92,0.92)))
+             tbl_b = Table(dane_b, colWidths=[6.0*cm, 2.0*cm, 4.0*cm, 6.0*cm]); tbl_b.setStyle(TableStyle(style_tabeli.getCommands() + style_cb)); story.append(tbl_b)
+
+        # --- Budowanie PDF ---
         doc.build(story)
         buffer.seek(0)
-        response = make_response(buffer.getvalue())
-        response.headers['Content-Type'] = 'application/pdf'
-        # Użyj bezpiecznej nazwy pliku
-        safe_nazwa_zawodow = "".join([c for c in zawody.nazwa if c.isalnum() or c in (' ', '-')]).rstrip()
-        response.headers['Content-Disposition'] = f'inline; filename="lista_startowa_{safe_nazwa_zawodow}_tura_{tura}.pdf"'
-        return response
-    except Exception as e:
-        flash(f"Błąd podczas generowania PDF: {e}", "danger")
-        print(f"Błąd PDF: {e}")
-        return redirect(url_for('wyniki_losowania'))
+        # --- Odpowiedź HTTP ---
+        response = make_response(buffer.getvalue()); response.headers['Content-Type'] = 'application/pdf'; safe_n = "".join(c for c in zawody.nazwa if c.isalnum() or c in (' ','-')).rstrip().replace(' ','_'); filename = f'wyniki_strefy_{safe_n}_tura_{tura}.pdf'; response.headers['Content-Disposition'] = f'inline; filename="{filename}"'; logger.info(f"Generated PDF: {filename}"); return response
+    except Exception as e: logger.error(f"PDF Gen Error T{tura}: {e}", exc_info=True); traceback.print_exc(); flash(f"Błąd PDF: {e}", "danger"); return redirect(url_for('wyniki_losowania'))
+
 
 
 @app.route('/zawody', methods=['GET', 'POST'])
