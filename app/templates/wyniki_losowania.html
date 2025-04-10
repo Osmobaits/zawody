@@ -69,8 +69,8 @@
                         {% if ustawienia %}
                             {% for tura in range(1, ustawienia.liczba_tur + 1) %}
                                 <th id="header-tura{{ tura }}-strefa" scope="col" class="text-center">T{{ tura }} Strefa</th>
-                                <th id="header-tura{{ tura }}-sektor" scope="col" class="text-center">T{{ tura }} Sektor (Edytuj)</th>
-                                <th id="header-tura{{ tura }}-stanowisko" scope="col" class="text-center">T{{ tura }} Stan. (Edytuj)</th>
+                                <th id="header-tura{{ tura }}-sektor" scope="col" class="text-center">T{{ tura }} Sektor</th>
+                                <th id="header-tura{{ tura }}-stanowisko" scope="col" class="text-center">T{{ tura }} Stan.</th>
                             {% endfor %}
                         {% endif %}
                     </tr>
@@ -148,30 +148,47 @@
     </form>
 
     {# Skrypt sortowania tabeli (bez zmian w logice, ale upewnijmy się, że getCellValue działa) #}
-     <script>
+     {# Skrypt sortowania tabeli (bez zmian) #}
+          <script>
         document.addEventListener('DOMContentLoaded', function() {
           const table = document.getElementById('wyniki-table');
           if (!table) return;
           const headers = table.querySelectorAll('th');
           let sortColumn = -1;
-          let sortOrder = 1;
+          let sortOrder = 1; // 1 = asc, -1 = desc
 
+          // === ZMODYFIKOWANA FUNKCJA getCellValue ===
           function getCellValue(row, columnIndex) {
             const cell = row.cells[columnIndex];
-            if (!cell) return '';
-            // Odczytuj wartość z inputa jeśli istnieje w komórce
-            const input = cell.querySelector('input[type="number"], input[type="text"]');
-            if (input) {
-                const value = input.value.trim();
-                if (input.type === 'number') { return value === '' ? Infinity : Number(value); }
-                return value.toUpperCase(); // Zwróć tekst sektora jako wielkie litery
-            }
-            // W przeciwnym razie zwróć tekst komórki (np. dla Strefy)
-            return cell.textContent.trim();
-          }
+            if (!cell) return ''; // Zwróć pusty string, jeśli komórka nie istnieje
 
-          // ... (reszta skryptu sortowania bez zmian: funkcja sortTable, event listenery dla nagłówków) ...
-           function sortTable(columnIndex) {
+            const input = cell.querySelector('input[type="number"], input[type="text"]');
+            if (input) { // Jeśli komórka zawiera input (Sektor, Stanowisko)
+                const value = input.value.trim();
+                if (input.type === 'number') {
+                    // Dla inputów liczbowych (stanowisko), traktuj puste jako nieskończoność
+                    return value === '' ? Infinity : Number(value);
+                }
+                // Dla inputów tekstowych (sektor), zwróć tekst (wielkimi literami)
+                return value.toUpperCase();
+            } else {
+                // Dla komórek bez inputów (Nr, Zawodnik, Strefa)
+                const textContent = cell.textContent.trim();
+                // === POPRAWKA: Sprawdź, czy to kolumna 'Nr' (indeks 0) i spróbuj sparsować jako liczbę ===
+                if (columnIndex === 0) { // Zakładamy, że 'Nr' jest zawsze pierwszą kolumną (indeks 0)
+                    const num = parseInt(textContent, 10); // Spróbuj sparsować jako liczbę dziesiętną
+                    // Jeśli parsowanie się udało, zwróć liczbę, w przeciwnym razie tekst (lub np. Infinity)
+                    return !isNaN(num) ? num : textContent; // Zwróć liczbę, jeśli to liczba
+                }
+                // === KONIEC POPRAWKI ===
+                // Dla innych kolumn tekstowych (Zawodnik, Strefa) zwróć tekst
+                return textContent;
+            }
+          }
+          // === KONIEC ZMODYFIKOWANEJ FUNKCJI getCellValue ===
+
+          // Funkcja sortTable (logika porównania pozostaje taka sama, bo getCellValue zwraca już liczby dla kolumny Nr)
+          function sortTable(columnIndex) {
               const tbody = table.querySelector('tbody');
               if (!tbody) return;
               const rows = Array.from(tbody.querySelectorAll('tr'));
@@ -181,18 +198,26 @@
                 const valA = getCellValue(rowA, columnIndex);
                 const valB = getCellValue(rowB, columnIndex);
 
+                // Porównanie numeryczne (działa teraz dla Nr i Stanowiska)
                 if (typeof valA === 'number' && typeof valB === 'number') {
-                     if (valA === Infinity && valB !== Infinity) return sortOrder === 1 ? 1 : -1;
-                     if (valB === Infinity && valA !== Infinity) return sortOrder === 1 ? -1 : 1;
-                     if (valA === Infinity && valB === Infinity) return 0;
-                    return (valA - valB) * sortOrder;
-                } else {
-                    const strA = String(valA); const strB = String(valB);
+                     if (valA === Infinity && valB !== Infinity) return sortOrder === 1 ? 1 : -1; // Puste na końcu
+                     if (valB === Infinity && valA !== Infinity) return sortOrder === 1 ? -1 : 1; // Puste na końcu
+                     if (valA === Infinity && valB === Infinity) return 0; // Oba puste
+                    return (valA - valB) * sortOrder; // Sortowanie numeryczne
+                }
+                // Porównanie tekstowe (dla Zawodnika, Strefy, Sektora)
+                else {
+                    const strA = String(valA);
+                    const strB = String(valB);
+                    // Użyj localeCompare dla poprawnego sortowania polskich znaków
                     return strA.localeCompare(strB, 'pl', { sensitivity: 'base' }) * sortOrder;
                 }
               });
+
+              // Wstaw posortowane wiersze z powrotem do tbody
               rows.forEach(row => tbody.appendChild(row));
 
+              // Aktualizuj wygląd nagłówków (strzałki, klasy)
               headers.forEach((header, index) => {
                     header.classList.remove('sorted-asc', 'sorted-desc');
                     const arrowSpan = header.querySelector('.sort-arrow');
@@ -204,8 +229,9 @@
               });
           }
 
+          // Dodawanie listenerów do nagłówków (bez zmian)
           headers.forEach((header, index) => {
-            if(!header.id) return;
+            if(!header.id) return; // Sortuj tylko nagłówki z ID
             if (!header.querySelector('.sort-arrow')) {
                 const arrowSpan = document.createElement('span');
                 arrowSpan.classList.add('sort-arrow');
@@ -217,8 +243,7 @@
                 else { sortColumn = index; sortOrder = 1; }
                 sortTable(index);
             });
-        });
-
+          });
         });
     </script>
 

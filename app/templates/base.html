@@ -1,4 +1,4 @@
-{# Plik: templates/base.html #}
+{# Plik: templates/base.html (Jeszcze bardziej minimalistyczne Menu) #}
 
 <!DOCTYPE html>
 <html lang="pl">
@@ -7,184 +7,82 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no">
     <title>{% block title %}Zawody Wędkarskie{% endblock %} - System</title>
 
-    <!-- Bootstrap CSS (Wersja 4.5.2 - zgodnie z Twoim kodem) -->
+    <!-- Bootstrap CSS (Wersja 4.5.2) -->
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" integrity="sha384-JcKb8q3iqJ61gNV9KGb8thSsNjpSL0n8PARn9HuZOnIxN0hoP+VmmDGMN5t9UJ0Z" crossorigin="anonymous">
-
-    <!-- Bootstrap Icons CSS (Użyto nowszej wersji dla ikon) -->
+    <!-- Bootstrap Icons CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
-
     <!-- Twój własny plik CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
     <style>
-        /* Dodatkowe drobne style dla lepszego wyglądu ikon w menu */
-        .navbar-nav .nav-link .bi {
-            margin-right: 0.3rem; /* Mały margines po prawej stronie ikony */
-            vertical-align: text-bottom; /* Wyrównanie ikony z tekstem */
-        }
-        /* Poprawka dla dropdown-toggle, aby ikona była w linii */
-        .dropdown-toggle .bi {
-             margin-right: 0.3rem;
-             vertical-align: baseline; /* Może być potrzebne inne wyrównanie */
-        }
-        /* Poprawki dla dropdown-item z ikonami */
-        .dropdown-item .bi {
-            margin-right: 0.4rem;
-            width: 1.2em; /* Zapewnia stałą szerokość dla ikony */
-            text-align: center;
+        /* Style dla ikon w menu - pozostają na wszelki wypadek */
+        .navbar .nav-link .bi, .navbar .navbar-brand .bi {
+            margin-right: 0.4rem; vertical-align: text-bottom; position: relative; top: -1px;
         }
     </style>
 
     {% block extra_head %}{% endblock %}
 </head>
 <body>
+
+    {# === Minimalistyczne Menu Nawigacyjne === #}
+    <nav class="navbar navbar-expand-sm navbar-light bg-light mb-4 shadow-sm rounded">
+      <div class="container">
+        {# Link do strony głównej/dashboardu - dynamiczny cel #}
+        {% if current_user.is_authenticated %}
+            {% if current_user.role == 'wagowy' %}
+                <a class="navbar-brand" href="{{ url_for('wagowy_dashboard') }}" title="Panel Wagowego">
+                    <i class="bi bi-house-door-fill"></i> Panel Wagowego
+                </a>
+            {% else %} {# Dla admina #}
+                <a class="navbar-brand" href="{{ url_for('index') }}" title="Panel Główny">
+                     <i class="bi bi-house-door-fill"></i> Panel Główny
+                 </a>
+            {% endif %}
+        {% else %} {# Dla niezalogowanych #}
+             <a class="navbar-brand" href="{{ url_for('index') }}">
+                 <i class="bi bi-water"></i> Zawody System
+             </a>
+        {% endif %}
+
+        {# Przycisk zwijania menu #}
+        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNavSimple" aria-controls="navbarNavSimple" aria-expanded="false" aria-label="Toggle navigation">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+
+        {# Zawartość menu (zwijana) #}
+        <div class="collapse navbar-collapse" id="navbarNavSimple">
+          {# Usunięto linki wyrównane do lewej (był tu Wyniki Publiczne) #}
+          <ul class="navbar-nav mr-auto">
+            {# Można tu dodać inne globalne linki w przyszłości, jeśli będą potrzebne #}
+          </ul>
+          {# Linki po prawej - tylko logowanie #}
+          <ul class="navbar-nav">
+            {# === USUNIĘTO LINK WYLOGUJ i info o użytkowniku === #}
+            {# {% if current_user.is_authenticated %}
+                <span class="navbar-text small mr-3">Zalogowany: ...</span>
+                <li class="nav-item"><a class="nav-link" href="{{ url_for('logout') }}"><i class="bi bi-box-arrow-right"></i> Wyloguj</a></li>
+            {% else %} #}
+            {% if not current_user.is_authenticated %} {# Pokaż logowanie tylko jeśli niezalogowany #}
+                <li class="nav-item {{ 'active' if request.endpoint == 'login' else '' }}">
+                    <a class="nav-link" href="{{ url_for('login') }}"><i class="bi bi-box-arrow-in-right"></i> Zaloguj</a>
+                </li>
+            {% endif %}
+            {# === KONIEC USUWANIA === #}
+          </ul>
+        </div>
+      </div>
+    </nav>
+    {# === KONIEC MENU === #}
+
+
+    {# Główna zawartość strony dziedziczącej #}
     <div class="container mt-3">
-
-        <header class="mb-4">
-            {# Górny pasek z tytułem i informacją o użytkowniku #}
-            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap">
-                 <h1 class="h3">Zawody Wędkarskie - System</h1>
-                 {% if current_user.is_authenticated %}
-                    <span class="text-muted small">Zalogowany jako: {{ current_user.username }} ({{ current_user.role | capitalize }})</span>
-                 {% endif %}
-            </div>
-
-            {# Główna nawigacja aplikacji #}
-            <nav class="navbar navbar-expand-lg navbar-light bg-light rounded mb-3 shadow-sm">
-              <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-                <span class="navbar-toggler-icon"></span>
-              </button>
-              <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav mr-auto"> {# Linki wyrównane do lewej #}
-                  {# Zawsze widoczne - Strona główna/Dashboard #}
-                  <li class="nav-item {{ 'active' if request.endpoint == 'index' or request.endpoint == 'wagowy_dashboard' else '' }}">
-                      {# Link do strony głównej różni się w zależności od roli #}
-                      {% if current_user.is_authenticated and current_user.role == 'wagowy' %}
-                          <a class="nav-link" href="{{ url_for('wagowy_dashboard') }}"><i class="bi bi-house-door"></i> Panel Wagowego</a>
-                      {% else %} {# Domyślnie dla niezalogowanych i admina #}
-                          <a class="nav-link" href="{{ url_for('index') }}"><i class="bi bi-house-door"></i> Strona główna</a>
-                      {% endif %}
-                  </li>
-                  {# Zawsze widoczne - Link do publicznych wyników #}
-                   <li class="nav-item {{ 'active' if request.endpoint == 'public_lista_zawodow' else '' }}">
-                       <a class="nav-link" href="{{ url_for('public_lista_zawodow') }}"><i class="bi bi-eye"></i> Wyniki Publiczne</a>
-                   </li>
-
-                  {# Tylko dla zalogowanych #}
-                  {% if current_user.is_authenticated %}
-                    {# === Sekcja Admina === #}
-                    {% if current_user.role == 'admin' %}
-
-                      {# Bezpośredni link "Zarządzaj Zawodami" (zawsze widoczny dla admina) #}
-                      <li class="nav-item {{ 'active' if request.endpoint == 'zawody' else '' }}">
-                        <a class="nav-link" href="{{ url_for('zawody') }}"><i class="bi bi-list-check"></i> Zarządzaj Zawodami</a>
-                      </li>
-
-                      {# Dropdown admina dla AKTYWNYCH zawodów - widoczny tylko gdy zawody są wybrane #}
-                      {% if 'current_zawody_id' in session %}
-                          <li class="nav-item dropdown">
-                             {# Etykieta dropdownu z ikoną flagi #}
-                             <a class="nav-link dropdown-toggle {{ 'active' if request.endpoint in ['ustawienia', 'zawodnicy', 'losowanie', 'wyniki_losowania', 'wprowadz_wyniki', 'wyniki_koncowe', 'szczegoly_zawodow'] else '' }}" href="#" id="currentCompetitionDropdownAdmin" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                                <i class="bi bi-flag"></i> Aktywne Zawody
-                             </a>
-                             {# Pełna zawartość dropdownu dla admina #}
-                             <div class="dropdown-menu" aria-labelledby="currentCompetitionDropdownAdmin">
-                                {# --- Podstawowe Zarządzanie --- #}
-                                <a class="dropdown-item {{ 'active' if request.endpoint == 'szczegoly_zawodow' else '' }}" href="{{ url_for('szczegoly_zawodow', zawody_id=session['current_zawody_id']) }}"><i class="bi bi-info-circle"></i> Szczegóły</a>
-                                <a class="dropdown-item {{ 'active' if request.endpoint == 'ustawienia' else '' }}" href="{{ url_for('ustawienia') }}"><i class="bi bi-gear"></i> Ustawienia</a>
-                                <a class="dropdown-item {{ 'active' if request.endpoint == 'zawodnicy' else '' }}" href="{{ url_for('zawodnicy') }}"><i class="bi bi-people"></i> Zawodnicy</a>
-                                <div class="dropdown-divider"></div>
-                                {# --- Losowanie --- #}
-                                <a class="dropdown-item {{ 'active' if request.endpoint == 'losowanie' else '' }}" href="{{ url_for('losowanie') }}"><i class="bi bi-shuffle"></i> Losowanie</a>
-                                <a class="dropdown-item {{ 'active' if request.endpoint == 'wyniki_losowania' else '' }}" href="{{ url_for('wyniki_losowania') }}"><i class="bi bi-card-list"></i> Wyniki Losowania</a>
-                                <div class="dropdown-divider"></div>
-                                {# --- Wyniki --- #}
-                                <a class="dropdown-item {{ 'active' if request.endpoint == 'wprowadz_wyniki' else '' }}" href="{{ url_for('wprowadz_wyniki') }}"><i class="bi bi-input-cursor-text"></i> Wprowadź Wyniki</a>
-                                <a class="dropdown-item {{ 'active' if request.endpoint == 'wyniki_koncowe' else '' }}" href="{{ url_for('wyniki_koncowe') }}"><i class="bi bi-trophy-fill"></i> Wyniki Końcowe</a>
-                             </div>
-                          </li>
-                      {% else %}
-                          {# Komunikat dla admina, gdy nie wybrano zawodów (zamiast dropdownu) #}
-                          <li class="nav-item"><span class="nav-link text-muted disabled"><i class="bi bi-flag"></i> Wybierz aktywne zawody</span></li>
-                      {% endif %} {# Koniec linków zależnych od wybranych zawodów (admin) #}
-
-                      {# Dropdown użytkowników tylko dla admina #}
-                       <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle {{ 'active' if request.endpoint in ['register', 'user_list'] else '' }}" href="#" id="adminUserDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                          <i class="bi bi-person-badge"></i> Użytkownicy
-                        </a>
-                        <div class="dropdown-menu" aria-labelledby="adminUserDropdown">
-                          <a class="dropdown-item {{ 'active' if request.endpoint == 'register' else '' }}" href="{{ url_for('register') }}">Dodaj użytkownika</a>
-                          <a class="dropdown-item {{ 'active' if request.endpoint == 'user_list' else '' }}" href="{{ url_for('user_list') }}">Lista użytkowników</a>
-                        </div>
-                      </li>
-                    {# === Sekcja Wagowego === #}
-                    {% elif current_user.role == 'wagowy' %}
-                         {# Dropdown wagowego dla AKTYWNYCH zawodów - widoczny tylko gdy zawody są wybrane #}
-                         {% if 'current_zawody_id' in session %}
-                             <li class="nav-item dropdown">
-                                 <a class="nav-link dropdown-toggle {{ 'active' if request.endpoint in ['wprowadz_wyniki', 'wyniki_losowania', 'wyniki_koncowe', 'szczegoly_zawodow'] else '' }}" href="#" id="currentCompetitionDropdownWagowy" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                                    <i class="bi bi-flag"></i> Aktywne Zawody
-                                 </a>
-                                 <div class="dropdown-menu" aria-labelledby="currentCompetitionDropdownWagowy">
-                                    <a class="dropdown-item {{ 'active' if request.endpoint == 'szczegoly_zawodow' else '' }}" href="{{ url_for('szczegoly_zawodow', zawody_id=session['current_zawody_id']) }}"><i class="bi bi-info-circle"></i> Szczegóły</a>
-                                    <div class="dropdown-divider"></div>
-                                    <a class="dropdown-item {{ 'active' if request.endpoint == 'wprowadz_wyniki' else '' }}" href="{{ url_for('wprowadz_wyniki') }}"><i class="bi bi-input-cursor-text"></i> Wprowadź Wyniki</a>
-                                    <a class="dropdown-item {{ 'active' if request.endpoint == 'wyniki_losowania' else '' }}" href="{{ url_for('wyniki_losowania') }}"><i class="bi bi-card-list"></i> Zobacz Losowanie</a>
-                                    <a class="dropdown-item {{ 'active' if request.endpoint == 'wyniki_koncowe' else '' }}" href="{{ url_for('wyniki_koncowe') }}"><i class="bi bi-trophy-fill"></i> Zobacz Wyniki</a>
-                                 </div>
-                             </li>
-                         {% else %}
-                             {# Komunikat dla wagowego, gdy nie wybrano zawodów #}
-                             <li class="nav-item"><span class="nav-link text-muted disabled"><i class="bi bi-flag"></i> Wybierz aktywne zawody (admin)</span></li>
-                         {% endif %}
-                         {# Opcjonalnie link do zmiany zawodów dla wagowego, jeśli ma mieć taką możliwość #}
-                         {# <li class="nav-item {{ 'active' if request.endpoint == 'zawody' else '' }}"> <a class="nav-link" href="{{ url_for('zawody') }}">Wybierz Zawody</a> </li> #}
-                    {% endif %} {# Koniec rozróżnienia admin/wagowy #}
-
-                  {% endif %} {# Koniec menu dla zalogowanych #}
-                </ul>
-
-                {# Logowanie/Wylogowanie po prawej stronie #}
-                <ul class="navbar-nav">
-                    {% if current_user.is_authenticated %}
-                        <li class="nav-item"> <a class="nav-link" href="{{ url_for('logout') }}"><i class="bi bi-box-arrow-right"></i> Wyloguj</a> </li>
-                    {% else %}
-                        <li class="nav-item {{ 'active' if request.endpoint == 'login' else '' }}"> <a class="nav-link" href="{{ url_for('login') }}"><i class="bi bi-box-arrow-in-right"></i> Zaloguj</a> </li>
-                    {% endif %}
-                </ul>
-              </div>
-            </nav>
-
-            {# Informacja o wybranych zawodach - wyświetlana warunkowo #}
-            {% if current_user.is_authenticated and request.endpoint not in ['login', 'register', 'public_lista_zawodow', 'public_view'] %}
-                <div class="alert alert-secondary small p-2 mb-3 shadow-sm text-center" role="alert">
-                    {% if 'current_zawody_id' in session and session['current_zawody_id'] %}
-                        <i class="bi bi-flag-fill me-1"></i> Aktywne zawody:
-                        {# Link do szczegółów #}
-                        <strong><a href="{{ url_for('szczegoly_zawodow', zawody_id=session['current_zawody_id']) }}" class="alert-link">{{ session.get('current_zawody_nazwa', 'Brak nazwy') }}</a></strong>
-                        {# Linki Zmień/Podgląd - widoczne dla admina, tylko Podgląd dla wagowego #}
-                        {% if current_user.role == 'admin' %}
-                          (<a href="{{ url_for('zawody') }}" class="alert-link">Zmień</a> |
-                           <a href="{{ url_for('public_view', zawody_id=session['current_zawody_id']) }}" class="alert-link" target="_blank">Podgląd <i class="bi bi-box-arrow-up-right small"></i></a>)
-                        {% elif current_user.role == 'wagowy' %}
-                           (<a href="{{ url_for('public_view', zawody_id=session['current_zawody_id']) }}" class="alert-link" target="_blank">Podgląd <i class="bi bi-box-arrow-up-right small"></i></a>)
-                        {% endif %}
-                    {% else %}
-                         {# Komunikat, gdy zalogowany, ale nie wybrano zawodów #}
-                         <i class="bi bi-exclamation-circle me-1"></i> Nie wybrano aktywnych zawodów. {% if current_user.role == 'admin' %}Przejdź do <a href="{{ url_for('zawody') }}" class="alert-link">Zarządzania Zawodami</a>.{% else %}Skontaktuj się z administratorem, aby wybrał zawody.{% endif %}
-                    {% endif %}
-                </div>
-            {% endif %} {# Koniec warunku na zalogowanego użytkownika i endpoint #}
-
-        </header>
-
         <main role="main">
             {# Wyświetlanie komunikatów Flash #}
             {% with messages = get_flashed_messages(with_categories=true) %}
                 {% if messages %}
                     {% for category, message in messages %}
-                        {# Użycie nowszej składni alertów Bootstrap 4/5 #}
                         <div class="alert alert-{{ category if category in ['primary', 'secondary', 'success', 'danger', 'warning', 'info', 'light', 'dark'] else 'info' }} alert-dismissible fade show" role="alert">
                             {{ message }}
                             <button type="button" class="close" data-dismiss="alert" aria-label="Close">
@@ -195,17 +93,19 @@
                 {% endif %}
             {% endwith %}
 
-            {# Główna zawartość strony dziedziczącej #}
+            {# Blok content #}
             {% block content %}{% endblock %}
         </main>
+    </div>
 
-        <footer class="mt-4 text-center text-muted small">
-            <hr>
-            {# Użycie zmiennej 'current_year' dostarczonej przez context processor #}
-            © {% if current_year %}{{ current_year }}{% else %}{{ now().year if now else '2024'}}{% endif %} Zawody Wędkarskie - System {# Dodano fallback #}
-        </footer>
-
-    </div> <!-- Koniec kontenera Bootstrap -->
+    {# Stopka aplikacji #}
+    <footer class="mt-4 text-center text-muted small container">
+        <hr>
+        © {% if current_year %}{{ current_year }}{% else %}<!-- Rok? -->{% endif %} Zawody Wędkarskie - System
+         {# === ZMIANA TEKSTU LINKU === #}
+         | <a href="{{ url_for('public_lista_zawodow') }}" class="text-muted">Wyniki zawodów</a>
+         {# === KONIEC ZMIANY === #}
+    </footer>
 
     <!-- Bootstrap JS, Popper.js, and jQuery (Wersja 4.5.2) -->
     <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js" integrity="sha384-DfXdz2htPH0lsSSs5nCTpuj/zy4C+OGpamoFVy38MVBnE+IbbVYUew+OrCXaRkfj" crossorigin="anonymous"></script>

@@ -21,8 +21,114 @@ from sqlalchemy import desc
 import re 
 import os # Potrzebny do operacji na plikach/ścieżkach
 from werkzeug.utils import secure_filename # Dobra praktyka, choć mniej krytyczna dla .txt
+from flask import jsonify 
+from sqlalchemy.orm import joinedload # Dla eager loading
+from sqlalchemy.exc import SQLAlchemyError # Do łapania błędów DB
+from sqlalchemy import desc
+import re 
+import os # Potrzebny do operacji na plikach/ścieżkach
+from werkzeug.utils import secure_filename # Dobra praktyka, choć mniej krytyczna dla .txt
 
+# === Importy dla ReportLab ===
+from reportlab.lib.pagesizes import letter, A4, landscape
+# === POPRAWKA: Dodaj KeepTogether ===
+from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle, Spacer,
+                              Paragraph, PageBreak, KeepTogether)
+# === KONIEC POPRAWKI ===
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.units import inch, cm
 
+# === Rejestracja czcionek Roboto dla ReportLab ===
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+import os
+import logging # Potrzebny logging
+
+# Ścieżka do folderu z czcionkami
+# Zakładamy, że routes.py jest w folderze 'app', a 'fonts' jest obok 'app'
+APP_DIR = os.path.dirname(__file__)
+FONT_FOLDER = os.path.abspath(os.path.join(APP_DIR, '..', 'fonts')) # Użyj ścieżki absolutnej
+
+print(f"INFO: Attempting to register fonts from folder: {FONT_FOLDER}") # Loguj ścieżkę
+
+# Nazwy plików - SPRAWDŹ DOKŁADNIE!
+ROBOTO_REGULAR_FILE = 'Roboto-Regular.ttf'
+ROBOTO_BOLD_FILE = 'Roboto-Bold.ttf'       # Najczęściej tak się nazywa
+ROBOTO_ITALIC_FILE = 'Roboto-Italic.ttf'
+ROBOTO_BOLDITALIC_FILE = 'Roboto-BoldItalic.ttf'
+# ROBOTO_BLACK_FILE = 'Roboto-Black.ttf'   # Jeśli potrzebujesz
+
+# Nazwy rejestrowane w ReportLab
+ROBOTO_REGULAR = 'Roboto'
+ROBOTO_BOLD = 'Roboto-Bold'
+ROBOTO_ITALIC = 'Roboto-Italic'
+ROBOTO_BOLDITALIC = 'Roboto-BoldItalic'
+# ROBOTO_BLACK = 'Roboto-Black'
+
+DEFAULT_FONT_NAME = 'Helvetica' # Domyślna na wypadek błędu
+
+try:
+    fonts_registered = 0
+    # Rejestracja Normal
+    font_path = os.path.join(FONT_FOLDER, ROBOTO_REGULAR_FILE)
+    if os.path.exists(font_path):
+        pdfmetrics.registerFont(TTFont(ROBOTO_REGULAR, font_path))
+        fonts_registered += 1
+    else: print(f"WARN: Font file not found: {font_path}")
+
+    # Rejestracja Bold
+    font_path = os.path.join(FONT_FOLDER, ROBOTO_BOLD_FILE)
+    if os.path.exists(font_path):
+        pdfmetrics.registerFont(TTFont(ROBOTO_BOLD, font_path))
+        fonts_registered += 1
+    else: print(f"WARN: Font file not found: {font_path}")
+
+    # Rejestracja Italic
+    font_path = os.path.join(FONT_FOLDER, ROBOTO_ITALIC_FILE)
+    if os.path.exists(font_path):
+        pdfmetrics.registerFont(TTFont(ROBOTO_ITALIC, font_path))
+        fonts_registered += 1
+    else: print(f"WARN: Font file not found: {font_path}")
+
+    # Rejestracja BoldItalic
+    font_path = os.path.join(FONT_FOLDER, ROBOTO_BOLDITALIC_FILE)
+    if os.path.exists(font_path):
+        pdfmetrics.registerFont(TTFont(ROBOTO_BOLDITALIC, font_path))
+        fonts_registered += 1
+    else: print(f"WARN: Font file not found: {font_path}")
+
+    # Rejestruj rodzinę tylko jeśli udało się zarejestrować przynajmniej podstawowy krój
+    if ROBOTO_REGULAR in pdfmetrics.getRegisteredFontNames():
+        pdfmetrics.registerFontFamily(
+            ROBOTO_REGULAR,
+            normal=ROBOTO_REGULAR,
+            bold=ROBOTO_BOLD if ROBOTO_BOLD in pdfmetrics.getRegisteredFontNames() else ROBOTO_REGULAR, # Fallback na regular, jeśli bold nie ma
+            italic=ROBOTO_ITALIC if ROBOTO_ITALIC in pdfmetrics.getRegisteredFontNames() else ROBOTO_REGULAR,
+            boldItalic=ROBOTO_BOLDITALIC if ROBOTO_BOLDITALIC in pdfmetrics.getRegisteredFontNames() else ROBOTO_REGULAR
+        )
+        DEFAULT_FONT_NAME = ROBOTO_REGULAR # Ustaw Roboto jako domyślną
+        print(f"INFO: Roboto font family registered. Registered styles: {fonts_registered}. Default: {DEFAULT_FONT_NAME}")
+    else:
+         raise ValueError("Failed to register base Roboto font (Roboto-Regular.ttf).")
+
+except Exception as e:
+    print(f"ERROR: Could not register Roboto fonts: {e}. Polish characters in PDF might not work.")
+    print(f"ERROR: Falling back to default ReportLab fonts.")
+    DEFAULT_FONT_NAME = 'Helvetica' # Ustawienie fallbacku w razie błędu
+
+# === Koniec Rejestracji Czcionek ===
+
+ALLOWED_EXTENSIONS = {'txt'}
+
+# <<< DEFINICJA FUNKCJI MUSI BYĆ TUTAJ >>>
+def allowed_file(filename):
+    """Sprawdza, czy nazwa pliku ma kropkę i dozwolone rozszerzenie."""
+    # Teraz funkcja "widzi" zmienną ALLOWED_EXTENSIONS zdefiniowaną powyżej
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    
 # =========================================
 # DEFINICJA DEKORATORA ROLE_REQUIRED (NA POCZĄTKU)
 # =========================================
@@ -575,33 +681,28 @@ def index():
 def admin_panel():
     return render_template('admin.html')
 
+# === Trasa /users ===
 @app.route('/users')
 @login_required
-@role_required('admin')
+@role_required('admin') # Tylko admin widzi listę użytkowników
 def user_list():
+    """ Wyświetla listę wszystkich użytkowników z opcją usunięcia (z zabezpieczeniami). """
+    logger = current_app.logger if current_app else logging.getLogger(__name__)
+    logger.debug("Accessing /users route")
+    users = [] # Inicjalizacja na wypadek błędu
     try:
-        users = User.query.order_by(User.username).all()
+        # Pobierz wszystkich użytkowników posortowanych alfabetycznie
+        users = User.query.order_by(User.username.asc()).all()
+        logger.info(f"Fetched {len(users)} users for the list.")
     except Exception as e:
+        logger.error(f"Error fetching user list: {e}", exc_info=True)
         flash(f"Błąd podczas pobierania listy użytkowników: {e}", "danger")
-        users = []
-    return render_template('user_list.html', users=users)
+        users = [] # Zwróć pustą listę w razie błędu
 
-# app/routes.py
-
-# ... (importy: Flask, render_template, request, redirect, url_for, flash, session, db, ...)
-# ... (importy: Zawodnik, Zawody, WynikLosowania, Wynik)
-# ... (importy: ZawodnikForm)
-# ... (import logger)
-import os # Potrzebny do operacji na plikach/ścieżkach
-from werkzeug.utils import secure_filename # Dobra praktyka, choć mniej krytyczna dla .txt
-
-# === Funkcja pomocnicza do sprawdzania rozszerzeń ===
-ALLOWED_EXTENSIONS = {'txt'}
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-# === Dekorator role_required (zakładam, że jest zdefiniowany wcześniej w pliku) ===
-# def role_required(role): ...
+    # === Przekazanie pustego formularza dla CSRF ===
+    # Użyjemy metody hidden_tag() tego formularza w szablonie wewnątrz małych form usuwania
+    csrf_form = FlaskForm()
+    return render_template('user_list.html', users=users, csrf_form=csrf_form)
 
 # === Trasa /zawodnicy ===
 @app.route('/zawodnicy', methods=['GET', 'POST'])
@@ -612,184 +713,86 @@ def zawodnicy():
     Obsługuje wyświetlanie listy zawodników, dodawanie pojedynczego zawodnika
     oraz wczytywanie listy zawodników z pliku .txt (z czyszczeniem nazwisk).
     """
-    # Użyj loggera aplikacji lub standardowego loggera
     logger = current_app.logger if current_app else logging.getLogger(__name__)
     logger.debug(f"Accessing /zawodnicy route, method: {request.method}")
 
-    # Sprawdzenie, czy zawody są wybrane w sesji
     if 'current_zawody_id' not in session:
         flash('Najpierw wybierz lub utwórz zawody!', 'warning')
-        logger.warning("Access to /zawodnicy denied, no competition selected.")
         return redirect(url_for('zawody'))
 
     zawody_id = session['current_zawody_id']
-    logger.debug(f"Current competition ID from session: {zawody_id}") # LOG 1
-
-    # Sprawdzenie, czy wybrane zawody istnieją (na wypadek usunięcia w innej sesji)
-    # Używamy db.session.get() (zalecane w SQLAlchemy 2.x) lub Zawody.query.get() dla starszych
     aktywne_zawody = db.session.get(Zawody, zawody_id)
     if not aktywne_zawody:
-        session.pop('current_zawody_id', None)
-        session.pop('current_zawody_nazwa', None)
-        flash('Wybrane zawody już nie istnieją. Wybierz inne.', 'warning')
-        logger.warning(f"Current competition ID {zawody_id} in session does not exist in DB.")
-        return redirect(url_for('zawody'))
+        session.pop('current_zawody_id', None); session.pop('current_zawody_nazwa', None)
+        flash('Wybrane zawody już nie istnieją.', 'warning'); return redirect(url_for('zawody'))
 
-    # Formularz do dodawania pojedynczego zawodnika
-    form_add_single = ZawodnikForm()
+    form_add_single = ZawodnikForm() # Formularz do dodawania pojedynczego
 
     # --- Obsługa POST ---
     if request.method == 'POST':
-
         # --- SPRAWDZENIE 1: Czy to UPLOAD PLIKU? ---
         if 'zawodnicy_file' in request.files:
             logger.info(f"Processing file upload for competition {zawody_id} by admin {current_user.username}")
             file = request.files['zawodnicy_file']
+            if file.filename == '': flash('Nie wybrano pliku.', 'warning'); return redirect(request.url)
 
-            # Sprawdzenie, czy plik został wybrany
-            if file.filename == '':
-                flash('Nie wybrano żadnego pliku do wczytania.', 'warning')
-                return redirect(request.url) # Odśwież stronę
-
-            # Sprawdzenie rozszerzenia i czy plik istnieje
+            # Użycie funkcji allowed_file
             if file and allowed_file(file.filename):
-                zawodnicy_z_pliku = []
-                num_skipped_lines = 0 # Licznik pominiętych/pustych linii
+                zawodnicy_z_pliku, num_skipped_lines = [], 0
                 try:
-                    # Odczytaj zawartość pliku, dekodując jako UTF-8
                     content = file.stream.read().decode('utf-8')
-                    lines = content.splitlines() # Podziel na linie
-
+                    lines = content.splitlines()
                     for line_num, line in enumerate(lines, 1):
-                        original_line = line.strip() # Usuń białe znaki z brzegów
-                        if not original_line:
-                            num_skipped_lines += 1
-                            continue # Pomiń puste linie
-
-                        # === CZYSZCZENIE NAZWISKA ===
+                        original_line = line.strip()
+                        if not original_line: num_skipped_lines += 1; continue
                         name_no_digits = re.sub(r'\d+', '', original_line)
                         czyste_nazwisko = re.sub(r'[^A-Za-zĄąĆćĘęŁłŃńÓóŚśŹźŻż\s]+', '', name_no_digits).strip()
                         czyste_nazwisko = re.sub(r'\s{2,}', ' ', czyste_nazwisko).strip()
-                        # === KONIEC CZYSZCZENIA ===
-
-                        if czyste_nazwisko: # Jeśli coś zostało po czyszczeniu
+                        if czyste_nazwisko:
                             zawodnicy_z_pliku.append(czyste_nazwisko)
-                            if czyste_nazwisko != original_line:
-                                logger.debug(f"Line {line_num}: Cleaned '{original_line}' to '{czyste_nazwisko}'")
-                        else:
-                            logger.warning(f"Line {line_num}: Skipped '{original_line}' - empty after cleaning.")
-                            num_skipped_lines += 1
+                            if czyste_nazwisko != original_line: logger.debug(f"L{line_num}: Cleaned '{original_line}' to '{czyste_nazwisko}'")
+                        else: logger.warning(f"L{line_num}: Skipped '{original_line}'"); num_skipped_lines += 1
+                    if not zawodnicy_z_pliku: flash(f'Plik "{file.filename}" pusty lub bez nazwisk. Pominięto {num_skipped_lines} linii.', 'warning'); return redirect(request.url)
 
-                    if not zawodnicy_z_pliku:
-                         flash(f'Plik "{file.filename}" nie zawierał poprawnych nazwisk (po oczyszczeniu). Pominięto {num_skipped_lines} linii.', 'warning')
-                         return redirect(request.url)
-
-                    # === ZASTĘPOWANIE ZAWODNIKÓW W BAZIE (w transakcji) ===
-                    logger.warning(f"Replacing ALL competitors and resetting draw/results for comp {zawody_id} from file {file.filename}.")
-                    # Użycie with zapewnia automatyczny commit lub rollback
-                    try:
-                        with db.session.begin_nested(): # Lepsze zarządzanie transakcją
-                            WynikLosowania.query.filter_by(zawody_id=zawody_id).delete()
-                            Wynik.query.filter_by(zawody_id=zawody_id).delete()
-                            Zawodnik.query.filter_by(zawody_id=zawody_id).delete()
-                            logger.debug("Deleted existing draw, weight results, and competitors inside nested transaction.")
-
-                            nowi_zawodnicy_obj = [
-                                Zawodnik(imie_nazwisko=name, zawody_id=zawody_id, is_puste_miejsce=False)
-                                for name in zawodnicy_z_pliku
-                            ]
-                            if nowi_zawodnicy_obj:
-                                db.session.add_all(nowi_zawodnicy_obj)
-                                logger.debug(f"Prepared {len(nowi_zawodnicy_obj)} new competitors for commit.")
-                        # Jeśli blok with zakończył się bez błędu, nested commit jest gotowy
-                        db.session.commit() # Główny commit
-                        flash_msg = f'Pomyślnie wczytano i zastąpiono {len(zawodnicy_z_pliku)} zawodników z pliku "{file.filename}". Losowanie i wyniki zostały zresetowane.'
-                        if num_skipped_lines > 0: flash_msg += f' Pominięto {num_skipped_lines} pustych lub nieprawidłowych linii.'
-                        flash(flash_msg, 'success')
-                        logger.info(f"Successfully loaded {len(zawodnicy_z_pliku)} competitors from file for comp {zawody_id}. Skipped lines: {num_skipped_lines}.")
-                    except Exception as e: # Łapanie błędów wewnątrz transakcji
-                        # Rollback jest automatyczny dzięki with db.session.begin_nested(), ale logujemy błąd
-                        logger.error(f"Error during database operations for file upload (comp {zawody_id}): {e}", exc_info=True)
-                        flash(f'Wystąpił błąd bazy danych podczas przetwarzania pliku: {e}', 'danger')
-                        # Nie potrzebujemy tu db.session.rollback(), bo `with` to obsłużył
-
-                except UnicodeDecodeError:
-                     # Ten błąd występuje poza transakcją DB
-                     logger.error(f"File encoding error for comp {zawody_id}, file {file.filename}. Make sure it's UTF-8.", exc_info=True)
-                     flash('Błąd dekodowania pliku. Upewnij się, że plik jest zapisany w kodowaniu UTF-8.', 'danger')
-                except Exception as e:
-                     # Inne błędy poza transakcją DB
-                     logger.error(f"Unexpected error processing uploaded file for comp {zawody_id}: {e}", exc_info=True)
-                     flash(f'Wystąpił nieoczekiwany błąd podczas przetwarzania pliku: {e}', 'danger')
-
-                return redirect(url_for('zawodnicy')) # Przekieruj ZAWSZE po próbie uploadu
-
+                    logger.warning(f"Replacing ALL competitors/draw/results for {zawody_id} from {file.filename}.")
+                    with db.session.begin_nested():
+                        WynikLosowania.query.filter_by(zawody_id=zawody_id).delete()
+                        Wynik.query.filter_by(zawody_id=zawody_id).delete()
+                        Zawodnik.query.filter_by(zawody_id=zawody_id).delete()
+                        nowi_zawodnicy_obj = [Zawodnik(imie_nazwisko=n, zawody_id=zawody_id) for n in zawodnicy_z_pliku]
+                        if nowi_zawodnicy_obj: db.session.add_all(nowi_zawodnicy_obj)
+                    db.session.commit()
+                    flash_msg = f'Wczytano {len(zawodnicy_z_pliku)} zawodników z "{file.filename}". Stara lista, losowanie i wyniki zostały usunięte.';
+                    if num_skipped_lines > 0: flash_msg += f' Pominięto {num_skipped_lines} linii.'
+                    flash(flash_msg, 'success'); logger.info(f"Loaded {len(zawodnicy_z_pliku)} for {zawody_id}. Skipped: {num_skipped_lines}.")
+                except UnicodeDecodeError: db.session.rollback(); logger.error(f"File encoding error: {file.filename}", exc_info=True); flash('Błąd kodowania pliku (użyj UTF-8).', 'danger')
+                except SQLAlchemyError as db_err: db.session.rollback(); logger.error(f"DB error processing file: {db_err}", exc_info=True); flash(f'Błąd bazy: {db_err}', 'danger')
+                except Exception as e: db.session.rollback(); logger.error(f"Error processing file: {e}", exc_info=True); flash(f'Nieoczekiwany błąd: {e}', 'danger')
+                return redirect(url_for('zawodnicy'))
             else:
-                # Plik nie istnieje lub ma złe rozszerzenie
-                flash('Niedozwolony typ pliku. Akceptowane są tylko pliki .txt', 'warning')
-                return redirect(request.url)
+                flash('Niedozwolony typ pliku (tylko .txt)', 'warning'); return redirect(request.url)
 
-        # --- SPRAWDZENIE 2: Czy to formularz dodawania POJEDYNCZEGO zawodnika? ---
+        # --- SPRAWDZENIE 2: Dodawanie pojedynczego ---
         elif form_add_single.validate_on_submit():
-            logger.info(f"Processing single competitor add for competition {zawody_id} by admin {current_user.username}")
-            nowy_zawodnik = Zawodnik(imie_nazwisko=form_add_single.imie_nazwisko.data.strip(), zawody_id=zawody_id)
-            db.session.add(nowy_zawodnik)
-            try:
-                # Dodanie NOWEGO zawodnika NADAL resetuje losowanie i wyniki
-                logger.warning(f"Resetting draw and weight results due to adding single competitor '{nowy_zawodnik.imie_nazwisko}' to competition {zawody_id}.")
-                WynikLosowania.query.filter_by(zawody_id=zawody_id).delete()
-                Wynik.query.filter_by(zawody_id=zawody_id).delete()
-                db.session.commit()
-                flash(f'Zawodnik "{nowy_zawodnik.imie_nazwisko}" dodany! UWAGA: Wyniki losowania i wyniki wagowe zostały zresetowane dla wszystkich.', 'warning')
-            except SQLAlchemyError as db_err: # Lepsze łapanie błędów DB
-                db.session.rollback()
-                logger.error(f"Database error adding single competitor '{form_add_single.imie_nazwisko.data}' to comp {zawody_id}: {db_err}", exc_info=True)
-                flash(f'Błąd bazy danych podczas dodawania zawodnika: {db_err}', 'danger')
-            except Exception as e:
-                db.session.rollback()
-                logger.error(f"Error adding single competitor '{form_add_single.imie_nazwisko.data}' to comp {zawody_id}: {e}", exc_info=True)
-                flash(f'Błąd podczas dodawania zawodnika: {e}', 'danger')
-            return redirect(url_for('zawodnicy')) # Redirect po dodaniu
-
-        # Jeśli POST, ale nie upload i nie poprawny formularz dodawania (np. błąd walidacji form_add_single)
-        elif request.method == 'POST':
-             logger.warning(f"POST request to /zawodnicy was not a valid file upload or single add form submission. Single form errors: {form_add_single.errors}")
-             # Nie przekierowuj, pozwól render_template poniżej wyświetlić błędy formularza form_add_single
-
+            logger.info(f"Adding single competitor for {zawody_id}"); nowy = Zawodnik(imie_nazwisko=form_add_single.imie_nazwisko.data.strip(), zawody_id=zawody_id); db.session.add(nowy)
+            try: logger.warning(f"Resetting draw/results for add '{nowy.imie_nazwisko}'."); WynikLosowania.query.filter_by(zawody_id=zawody_id).delete(); Wynik.query.filter_by(zawody_id=zawody_id).delete(); db.session.commit(); flash(f'Zawodnik "{nowy.imie_nazwisko}" dodany! UWAGA: Losowanie/wyniki zresetowane.', 'warning')
+            except Exception as e: db.session.rollback(); logger.error(f"Error adding single: {e}", exc_info=True); flash(f'Błąd dodawania: {e}', 'danger')
+            return redirect(url_for('zawodnicy'))
+        elif request.method == 'POST': logger.warning(f"Invalid POST /zawodnicy. Form errors: {form_add_single.errors}")
 
     # --- Obsługa GET ---
-    # Pobierz listę zawodników DO WYŚWIETLENIA (teraz powinna być aktualna po redirect)
-    logger.debug(f"Handling GET request for /zawodnicy, competition ID: {zawody_id}") # LOG 2
+    logger.debug(f"Handling GET request for /zawodnicy, competition ID: {zawody_id}")
     zawodnicy_lista = []
     try:
-        # --- === KLUCZOWE ZAPYTANIE === ---
-        zawodnicy_lista = Zawodnik.query.filter_by(zawody_id=zawody_id)\
-            .order_by(Zawodnik.is_puste_miejsce.asc(), Zawodnik.imie_nazwisko.asc())\
-            .all()
-        # --- === KONIEC ZAPYTANIA === ---
-
-        # --- === Logi debugowe === ---
-        logger.info(f"Fetched {len(zawodnicy_lista)} competitors from DB for competition ID: {zawody_id}.") # LOG 3 (Użyj INFO dla pewności)
+        zawodnicy_lista = Zawodnik.query.filter_by(zawody_id=zawody_id).order_by(Zawodnik.is_puste_miejsce.asc(), Zawodnik.imie_nazwisko.asc()).all()
+        logger.info(f"Fetched {len(zawodnicy_lista)} competitors from DB for competition ID: {zawody_id}.")
         if zawodnicy_lista:
-             # Poprawiony log, używa pojedynczych cudzysłowów wewnątrz f-stringa
              competitor_info = [f"{z.id}:{z.imie_nazwisko or 'Puste'}" for z in zawodnicy_lista[:5]]
-             logger.debug(f"First few competitors fetched: {competitor_info}") # LOG 4
-        else:
-            logger.warning(f"No competitors found in DB for competition ID: {zawody_id}") # LOG 5
-        # --- === Koniec logów === ---
+             logger.debug(f"First few competitors fetched: {competitor_info}")
+        else: logger.warning(f"No competitors found in DB for competition ID: {zawody_id}")
+    except Exception as e: logger.error(f"Error fetching list (GET): {e}", exc_info=True); flash(f"Błąd listy: {e}", "danger"); zawodnicy_lista = []
 
-    except KeyError: # Ten błąd jest już obsłużony na początku funkcji GET
-         # Można usunąć ten blok, jeśli jest już obsłużony wyżej
-         logger.error("Error fetching competitor list: 'current_zawody_id' not found in session during GET.")
-         flash("Błąd sesji: Nie wybrano aktywnych zawodów.", "danger")
-         return redirect(url_for('zawody'))
-    except Exception as e:
-         logger.error(f"Error fetching competitor list for comp {zawody_id} (GET): {e}", exc_info=True)
-         flash(f"Błąd podczas pobierania listy zawodników: {e}", "danger")
-         zawodnicy_lista = [] # Zwróć pustą listę w razie błędu
-
-    # Przekaż form_add_single (może zawierać błędy z POST) i pobraną listę zawodników
-    logger.debug(f"Rendering zawodnicy.html with {len(zawodnicy_lista)} competitors.") # LOG 6
+    logger.debug(f"Rendering zawodnicy.html with {len(zawodnicy_lista)} competitors.")
     return render_template('zawodnicy.html', form=form_add_single, zawodnicy=zawodnicy_lista)
 
 @app.route('/edytuj_zawodnikow', methods=['POST'])
@@ -934,10 +937,18 @@ def losowanie():
         return redirect(url_for('zawody'))
   return render_template('losowanie.html')
 
+# === Trasa /losuj_sekwencje (TWOJA ISTNIEJĄCA TRASA Z PONAWIANIEM) ===
 @app.route('/losuj_sekwencje', methods=['POST'])
 @login_required
 @role_required('admin')
-def losuj_sekwencje():
+def losuj_sekwencje(): # Używamy Twojej nazwy funkcji
+    """
+    Losuje sekwencje stref dla wszystkich zawodników (wypełniając pustymi miejscami).
+    Automatycznie ponawia próbę losowania (do MAX_PROB razy), jeśli pierwsza się nie powiedzie.
+    Resetuje poprzednie losowanie i wyniki wagowe.
+    """
+    logger = current_app.logger if current_app else logging.getLogger(__name__)
+    logger.info(f">>> Starting Zone Sequence Draw (with retries) by admin {current_user.username}")
     if 'current_zawody_id' not in session:
         flash('Najpierw wybierz zawody!', 'error')
         return redirect(url_for('zawody'))
@@ -948,187 +959,215 @@ def losuj_sekwencje():
         flash("Najpierw ustaw parametry zawodów!", "error")
         return redirect(url_for("ustawienia"))
 
-    # Uzupełnianie do pełnej pojemności "Pustymi miejscami"
+    # --- Krok 0: Przygotowanie zawodników i czyszczenie starych danych ---
     try:
+        # Pobierz parametry, sprawdź ich poprawność
         liczba_stref = ustawienia.preferowana_liczba_stref
-        liczba_sektorow = ustawienia.preferowana_liczba_sektorow
-        maks_stanowisk = ustawienia.maks_liczba_stanowisk_w_sektorze
+        liczba_sektorow = ustawienia.preferowana_liczba_sektorow # Potrzebne do pojemności
+        maks_stanowisk = ustawienia.maks_liczba_stanowisk_w_sektorze # Potrzebne do pojemności
         liczba_tur = ustawienia.liczba_tur
+        # === POPRAWIONA WALIDACJA USTAWIEŃ ===
+        if not all(isinstance(val, int) and val > 0 for val in [liczba_stref, liczba_sektorow, maks_stanowisk, liczba_tur]):
+             raise ValueError("Nieprawidłowe ustawienia (wartości muszą być dodatnimi liczbami całkowitymi).")
         maks_miejsc = liczba_stref * liczba_sektorow * maks_stanowisk
-    except AttributeError:
-         flash("Błąd w odczycie ustawień zawodów.", "danger")
-         return redirect(url_for('ustawienia'))
+        logger.debug(f"Calculated capacity: {maks_miejsc} spots.")
 
-    print(f"Obliczona maksymalna liczba miejsc: {maks_miejsc}")
+        # Sprawdź zgodność liczby tur i stref
+        if liczba_tur > liczba_stref:
+            flash(f"Liczba tur ({liczba_tur}) nie może być większa niż liczba stref ({liczba_stref})!", "error")
+            logger.warning(f"Draw aborted: Rounds ({liczba_tur}) > Zones ({liczba_stref}).")
+            return redirect(url_for('ustawienia'))
 
-    if liczba_tur > liczba_stref:
-        flash(f"Liczba tur ({liczba_tur}) nie może być większa niż liczba stref ({liczba_stref})! Zmień ustawienia.", "error")
-        return redirect(url_for("ustawienia"))
+        # Pobierz liczbę rzeczywistych zawodników
+        aktualni_zawodnicy_count = Zawodnik.query.filter_by(zawody_id=zawody_id, is_puste_miejsce=False).count()
+        liczba_pustych_do_dodania = maks_miejsc - aktualni_zawodnicy_count
+        logger.debug(f"Real competitors: {aktualni_zawodnicy_count}, Empty slots to add: {liczba_pustych_do_dodania}")
 
-    aktualni_zawodnicy = Zawodnik.query.filter(
-        Zawodnik.zawody_id == zawody_id,
-        Zawodnik.is_puste_miejsce == False
-    ).all()
-    liczba_aktualnych = len(aktualni_zawodnicy)
-    print(f"Liczba aktualnie wpisanych zawodników: {liczba_aktualnych}")
+        if liczba_pustych_do_dodania < 0:
+            flash(f"Liczba zapisanych zawodników ({aktualni_zawodnicy_count}) przekracza maksymalną pojemność ({maks_miejsc})!", "danger")
+            logger.error(f"Draw aborted: Competitors ({aktualni_zawodnicy_count}) > Capacity ({maks_miejsc}).")
+            return redirect(url_for('zawodnicy'))
 
+        # Przygotuj listę w transakcji
+        # Użycie with zapewnia automatyczny commit lub rollback
+        with db.session.begin_nested():
+            logger.warning(f"Sequence Draw: Clearing old draw/weight data and empty slots for comp {zawody_id}")
+            # Usuń stare dane losowania i wyników
+            WynikLosowania.query.filter_by(zawody_id=zawody_id).delete(synchronize_session=False) # Lepsze dla wydajności
+            Wynik.query.filter_by(zawody_id=zawody_id).delete(synchronize_session=False)
+            # Usuń tylko PUSTE miejsca
+            Zawodnik.query.filter_by(zawody_id=zawody_id, is_puste_miejsce=True).delete(synchronize_session=False)
+            # Dodaj nowe puste miejsca, jeśli potrzeba
+            if liczba_pustych_do_dodania > 0:
+                logger.info(f"Adding {liczba_pustych_do_dodania} empty slots.")
+                db.session.add_all([Zawodnik(zawody_id=zawody_id, is_puste_miejsce=True) for _ in range(liczba_pustych_do_dodania)])
+        db.session.commit() # Zatwierdź przygotowanie listy
+        logger.debug("Competitor list preparation committed.")
+
+    except ValueError as ve:
+         flash(f"Błąd w ustawieniach: {ve}", "danger"); return redirect(url_for('ustawienia'))
+    except SQLAlchemyError as db_err: # Łap błędy DB przy czyszczeniu/dodawaniu
+        db.session.rollback(); logger.error(f"Sequence Draw: DB Error preparing competitors: {db_err}", exc_info=True); flash(f"Błąd bazy danych podczas przygotowania listy: {db_err}", "danger"); return redirect(url_for('zawodnicy'))
+    except Exception as e: # Inne błędy
+        db.session.rollback(); logger.error(f"Sequence Draw: Error preparing competitors: {e}", exc_info=True); flash(f"Błąd przygotowania listy: {e}", "danger"); return redirect(url_for('zawodnicy'))
+
+    # Pobierz pełną listę zawodników po przygotowaniu
     try:
-        liczba_usunietych_pustych = Zawodnik.query.filter(
-            Zawodnik.zawody_id == zawody_id,
-            Zawodnik.is_puste_miejsce == True
-        ).delete()
-        WynikLosowania.query.filter_by(zawody_id=zawody_id).delete()
-        db.session.commit()
-        print(f"Usunięto {liczba_usunietych_pustych} poprzednich 'Pustych miejsc' i wyniki losowania.")
+        zawodnicy_do_losowania = Zawodnik.query.filter_by(zawody_id=zawody_id).all()
+        liczba_zawodnikow_do_los = len(zawodnicy_do_losowania)
     except Exception as e:
-        db.session.rollback()
-        flash(f"Błąd podczas czyszczenia starych danych: {e}", "danger")
-        return redirect(url_for('zawodnicy'))
+        logger.error(f"Sequence Draw: Error fetching prepared competitors: {e}", exc_info=True); flash(f"Błąd pobierania listy do losowania: {e}", "danger"); return redirect(url_for('zawodnicy'))
 
-    liczba_pustych_do_dodania = maks_miejsc - liczba_aktualnych
-
-    if liczba_pustych_do_dodania < 0:
-        flash(f"Błąd: Liczba wpisanych zawodników ({liczba_aktualnych}) przekracza maksymalną pojemność ({maks_miejsc})! "
-              f"Zmniejsz liczbę zawodników lub zmień ustawienia.", "danger")
-        return redirect(url_for('zawodnicy'))
-
-    if liczba_pustych_do_dodania > 0:
-        print(f"Dodawanie {liczba_pustych_do_dodania} 'Pustych miejsc'...")
-        nowe_puste_miejsca = [Zawodnik(zawody_id=zawody_id, is_puste_miejsce=True) for _ in range(liczba_pustych_do_dodania)]
-        if nowe_puste_miejsca:
-            db.session.add_all(nowe_puste_miejsca)
-            try:
-                db.session.commit()
-                flash(f"Dodano {liczba_pustych_do_dodania} 'Pustych miejsc', aby wypełnić pojemność.", "info")
-            except Exception as e:
-                db.session.rollback()
-                flash(f"Błąd podczas dodawania 'Pustych miejsc': {e}", "danger")
-                return redirect(url_for('zawodnicy'))
-    else:
-         print("Liczba zawodników zgadza się z pojemnością.")
-
-    zawodnicy_do_losowania = Zawodnik.query.filter_by(zawody_id=zawody_id).all()
-    liczba_zawodnikow_do_los = len(zawodnicy_do_losowania)
-
+    # Dodatkowe sprawdzenia po przygotowaniu
     if liczba_zawodnikow_do_los != maks_miejsc:
-         flash(f"Błąd wewnętrzny: Niezgodność liczby zawodników ({liczba_zawodnikow_do_los}) z pojemnością ({maks_miejsc}).", "danger")
-         return redirect(url_for('zawodnicy'))
+         flash(f"Błąd wewnętrzny: Niezgodność liczby zawodników ({liczba_zawodnikow_do_los}) z pojemnością ({maks_miejsc}) po przygotowaniu listy.", "danger"); return redirect(url_for('zawodnicy'))
+    if not zawodnicy_do_losowania:
+         flash("Brak zawodników do losowania.", "warning"); return redirect(url_for('zawodnicy'))
 
-    if liczba_zawodnikow_do_los == 0:
-         flash("Brak zawodników do losowania!", "warning")
-         return redirect(url_for('zawodnicy'))
+    # === Losowanie Sekwencji Stref z PĘTLĄ PONAWIANIA ===
+    logger.info("Sequence Draw: Drawing Zone Sequences (with retries)...")
+    MAX_PROB_LOSOWANIA_STREF = 20 # Zwiększono liczbę prób
+    macierz_losowania = None # Wynikowa macierz
+    sukces_losowania_stref = False
+    last_error_flash = None # Zapisz ostatni błąd flash z pętli
 
-    # Losowanie stref (wersja ścisła - priorytet trudnych + losowy wybór z najlepszych)
-    print("=== LOSUJ SEKWENCJE (Wersja ŚCISŁA - Priorytet Trudnych + Losowy Wybór) ===")
-    print(f"Liczba zawodników do losowania: {liczba_zawodnikow_do_los}")
+    for proba in range(MAX_PROB_LOSOWANIA_STREF):
+        logger.debug(f"Attempting zone sequence draw: Trial {proba + 1}/{MAX_PROB_LOSOWANIA_STREF}")
+        # Tworzymy tymczasową macierz dla tej próby
+        macierz_temp = [[None] * liczba_tur for _ in range(liczba_zawodnikow_do_los)]
+        ok_proba = True # Flaga sukcesu dla tej próby
+        last_error_flash = None # Resetuj błąd dla tej próby
 
-    strefy = [str(i) for i in range(1, liczba_stref + 1)]
-    idealna_liczba_na_strefe = liczba_zawodnikow_do_los // liczba_stref
-    reszta = liczba_zawodnikow_do_los % liczba_stref
-    SCISLE_LIMITY_STREF = {strefa: idealna_liczba_na_strefe + (1 if int(strefa) <= reszta else 0) for strefa in strefy}
-    print(f"ŚCISŁE Limity zawodników na strefę: {SCISLE_LIMITY_STREF}")
+        try:
+            # --- Logika losowania stref (jak w /losuj_sekwencje) ---
+            strefy = [str(i) for i in range(1, liczba_stref + 1)]
+            idl = liczba_zawodnikow_do_los // liczba_stref
+            resz = liczba_zawodnikow_do_los % liczba_stref
+            SCISLE_LIMITY_STREF = {s: idl + (1 if int(s) <= resz else 0) for s in strefy}
+            indeks_na_id = {i: z.id for i, z in enumerate(zawodnicy_do_losowania)} # Mapa indeks -> ID
 
-    macierz_losowania = [[None for _ in range(liczba_tur)] for _ in range(liczba_zawodnikow_do_los)]
-    zawodnik_ids = [z.id for z in zawodnicy_do_losowania]
-    indeks_na_id = {i: zawodnik_ids[i] for i in range(liczba_zawodnikow_do_los)}
+            for t in range(liczba_tur): # Pętla po turach
+                if not ok_proba: break # Jeśli coś poszło nie tak w tej próbie, przerwij tury
+                liczniki_stref_w_turze = defaultdict(int)
+                # Przygotuj opcje dla zawodników
+                opcje_dla_zawodnika = {}
+                for idx in range(liczba_zawodnikow_do_los):
+                    poprzednie = [macierz_temp[idx][pt] for pt in range(t) if macierz_temp[idx][pt] is not None]
+                    opcje_dla_zawodnika[idx] = {'nieodwiedzone': [s for s in strefy if s not in poprzednie]}
+                    opcje_dla_zawodnika[idx]['liczba_opcji'] = len(opcje_dla_zawodnika[idx]['nieodwiedzone'])
+                # Posortuj wg liczby opcji (rosnąco)
+                indeksy_posortowane = sorted(range(liczba_zawodnikow_do_los), key=lambda idx: opcje_dla_zawodnika[idx]['liczba_opcji'])
 
-    wszystko_ok = True
-    for t in range(liczba_tur):
-        if not wszystko_ok: break
-        print(f"  Losowanie Tury {t + 1}")
-        tura_idx = t
-        liczniki_stref_w_turze = defaultdict(int)
+                # Przypisz strefy w posortowanej kolejności
+                for i in indeksy_posortowane: # Pętla po zawodnikach (posortowanych)
+                    strefy_nieodwiedzone_zaw = opcje_dla_zawodnika[i]['nieodwiedzone']
+                    # Znajdź możliwe strefy (nieodwiedzone i z miejscem wg limitu tury)
+                    strefy_mozliwe = [s for s in strefy_nieodwiedzone_zaw if liczniki_stref_w_turze[s] < SCISLE_LIMITY_STREF.get(s, 0)]
 
-        # Logika kolejności przetwarzania (Priorytet Trudnych)
-        opcje_dla_zawodnika = {}
-        for idx in range(liczba_zawodnikow_do_los):
-            poprzednie_strefy = [macierz_losowania[idx][prev_t] for prev_t in range(tura_idx) if macierz_losowania[idx][prev_t] is not None]
-            strefy_nieodwiedzone = [s for s in strefy if s not in poprzednie_strefy]
-            opcje_dla_zawodnika[idx] = {
-                'nieodwiedzone': strefy_nieodwiedzone,
-                'liczba_opcji': len(strefy_nieodwiedzone)
-            }
-        indeksy_posortowane = sorted(range(liczba_zawodnikow_do_los), key=lambda idx: opcje_dla_zawodnika[idx]['liczba_opcji'])
-        # print(f"    Kolejność przetwarzania zawodników: {indeksy_posortowane}") # Opcjonalnie
+                    if not strefy_mozliwe:
+                        # Błąd krytyczny - nie można przypisać strefy
+                        zaw_id_err = indeks_na_id.get(i, f'Index {i}')
+                        last_error_flash = (f"Próba {proba + 1} nieudana: Brak możliwej strefy dla ID: {zaw_id_err} w Turze {t + 1}. "
+                                            f"Nieodwiedzone: {strefy_nieodwiedzone_zaw}, Liczniki: {dict(liczniki_stref_w_turze)}, Limity: {SCISLE_LIMITY_STREF}")
+                        logger.warning(last_error_flash + " Retrying...")
+                        ok_proba = False; break # Przerwij pętlę po zawodnikach DLA TEJ TURY i tej próby
 
-        # Przetwarzaj zawodników w posortowanej kolejności
-        for i in indeksy_posortowane:
-            zawodnik_idx = i
-            zawodnik_id_aktualny = indeks_na_id.get(zawodnik_idx, 'Nieznane ID')
-            strefy_nieodwiedzone_zaw = opcje_dla_zawodnika[zawodnik_idx]['nieodwiedzone']
+                    # Wybierz najlepszą z możliwych (najmniej zapełnioną)
+                    min_licznik = min(liczniki_stref_w_turze[s] for s in strefy_mozliwe)
+                    najlepsze = [s for s in strefy_mozliwe if liczniki_stref_w_turze[s] == min_licznik]
+                    # Wylosuj jedną z najlepszych
+                    wylosowana_strefa = random.choice(najlepsze)
+                    macierz_temp[i][t] = wylosowana_strefa
+                    liczniki_stref_w_turze[wylosowana_strefa] += 1
+                # Koniec pętli po zawodnikach dla tury 't'
+                if not ok_proba: break # Jeśli błąd w pętli po zawodnikach, przerwij też pętlę po turach
+            # Koniec pętli po turach dla próby 'proba'
 
-            strefy_mozliwe_do_przypisania = [
-                s for s in strefy_nieodwiedzone_zaw
-                if liczniki_stref_w_turze[s] < SCISLE_LIMITY_STREF.get(s, 0)
-            ]
+            # Sprawdź kompletność macierzy po zakończeniu wszystkich tur DLA TEJ PRÓBY
+            if ok_proba: # Jeśli nie było błędu "braku możliwej strefy"
+                if all(all(row) for row in macierz_temp): # Sprawdź, czy wszystkie komórki są wypełnione
+                    logger.info(f"Zone sequence draw successful on trial {proba + 1}.")
+                    macierz_losowania = macierz_temp # Przypisz udaną macierz
+                    sukces_losowania_stref = True
+                    break # SUKCES! Wyjdź z pętli prób
+                else: # Pętla po turach się zakończyła, ale macierz niekompletna
+                     last_error_flash = f"Próba {proba + 1} nieudana: Wygenerowana macierz jest niekompletna."
+                     logger.warning(last_error_flash + " Retrying...")
+                     ok_proba = False # Oznacz próbę jako nieudaną
 
-            if not strefy_mozliwe_do_przypisania:
-                flash(f"BŁĄD KRYTYCZNY: Niemożliwe przypisanie unikalnej i nieprzepełnionej strefy dla zawodnika ID: {zawodnik_id_aktualny} w turze {t + 1}. "
-                      f"Konfiguracja niemożliwa. Zmień ustawienia. "
-                      f"Nieodwiedzone strefy: {strefy_nieodwiedzone_zaw}. "
-                      f"Liczniki tury: {dict(liczniki_stref_w_turze)}. "
-                      f"Ścisłe limity: {SCISLE_LIMITY_STREF}", "danger")
-                print(f"    BŁĄD KRYTYCZNY ŚCISŁY (Priorytet): Zawodnik {zawodnik_idx} (ID: {zawodnik_id_aktualny}), Tura {t + 1}.")
-                wszystko_ok = False
-                break # Przerwij pętlę po zawodnikach
+        except Exception as e: # Złap inne błędy podczas losowania
+            last_error_flash = f"Próba {proba + 1} nieudana z powodu wyjątku: {e}"
+            logger.error(last_error_flash, exc_info=True)
+            ok_proba = False # Oznacz próbę jako nieudaną
 
-            # Znajdź najlepsze możliwe strefy (najmniej zapełnione spośród możliwych)
-            min_licznik_wsrod_mozliwych = min(liczniki_stref_w_turze[s] for s in strefy_mozliwe_do_przypisania)
-            najlepsze_mozliwe_strefy = [
-                s for s in strefy_mozliwe_do_przypisania
-                if liczniki_stref_w_turze[s] == min_licznik_wsrod_mozliwych
-            ]
+        # Pętla 'for proba' przejdzie do następnej iteracji, jeśli ok_proba == False
 
-            # --- Losowy wybór spośród najlepszych opcji ---
-            wylosowana_strefa = random.choice(najlepsze_mozliwe_strefy)
-            # --- Koniec losowego wyboru ---
+    # Sprawdzenie po wszystkich próbach
+    if not sukces_losowania_stref:
+        final_error_msg = last_error_flash or f"Nie udało się wylosować poprawnej sekwencji stref po {MAX_PROB_LOSOWANIA_STREF} próbach."
+        flash(final_error_msg + " Sprawdź ustawienia (szczególnie liczbę tur vs stref) lub spróbuj ponownie.", "danger")
+        logger.error(f"Sequence Draw FAILED: Could not generate valid zone sequences after {MAX_PROB_LOSOWANIA_STREF} trials.")
+        return redirect(url_for('losowanie')) # Wróć do panelu losowania
+    # === KONIEC Losowania Sekwencji Stref z PĘTLĄ PONAWIANIA ===
 
-            print(f"      Zawodnik {zawodnik_idx} (ID: {zawodnik_id_aktualny}): Wybrano strefę {wylosowana_strefa} (losowo z najlepszych: {najlepsze_mozliwe_strefy})")
 
-            macierz_losowania[zawodnik_idx][tura_idx] = wylosowana_strefa
-            liczniki_stref_w_turze[wylosowana_strefa] += 1
+    # === Zapis udanego losowania stref do bazy ===
+    logger.info("Sequence Draw: Saving results to database...")
+    wyniki_do_zapisu = []
+    indeks_na_id = {i: z.id for i, z in enumerate(zawodnicy_do_losowania)} # Upewnij się, że to mapowanie jest aktualne
 
-        if not wszystko_ok: break # Przerwij pętlę po turach
+    # Sprawdź, czy wszystkie ID zawodników są poprawne (nie None)
+    if None in indeks_na_id.values():
+         flash("Błąd krytyczny: Niektórzy zawodnicy mają brakujące ID. Nie można zapisać losowania.", "danger")
+         logger.critical(f"Sequence Draw Save Error: Found None ID in zawodnicy_do_losowania for comp {zawody_id}")
+         return redirect(url_for('zawodnicy')) # Przekieruj do listy zawodników
 
-    # Zapis do bazy tylko jeśli wszystko_ok
-    if wszystko_ok:
-        wyniki_do_zapisu = []
-        kompletna_macierz = True
-        for idx in range(liczba_zawodnikow_do_los):
-             if not all(macierz_losowania[idx][t] is not None for t in range(liczba_tur)):
-                  zawodnik_id_brak = indeks_na_id.get(idx, 'Nieznane ID')
-                  print(f"OSTRZEŻENIE: Macierz losowania niekompletna dla zawodnika ID: {zawodnik_id_brak}.")
-                  flash(f"Błąd: Nie udało się wygenerować pełnej sekwencji dla zawodnika ID: {zawodnik_id_brak}.", "danger")
-                  kompletna_macierz = False
-                  break
-
-        if kompletna_macierz:
-            for idx, zawodnik_id in indeks_na_id.items():
-                wynik = WynikLosowania(zawodnik_id=zawodnik_id, zawody_id=zawody_id)
-                for t in range(liczba_tur):
+    # Tworzenie obiektów WynikLosowania
+    for idx, zawodnik_id in indeks_na_id.items():
+        # Sprawdź, czy macierz ma odpowiedni wymiar (na wszelki wypadek)
+        if idx < len(macierz_losowania):
+            wynik = WynikLosowania(zawodnik_id=zawodnik_id, zawody_id=zawody_id)
+            for t in range(liczba_tur):
+                if t < len(macierz_losowania[idx]):
                     strefa = macierz_losowania[idx][t]
                     setattr(wynik, f'tura{t + 1}_strefa', strefa)
                     setattr(wynik, f'tura{t + 1}_sektor', None)
                     setattr(wynik, f'tura{t + 1}_stanowisko', None)
-                wyniki_do_zapisu.append(wynik)
+                else:
+                    # To nie powinno się zdarzyć, jeśli macierz jest kompletna
+                    logger.error(f"Sequence Draw Save Error: Matrix row {idx} too short for round {t+1}")
+                    flash(f"Błąd wewnętrzny: Macierz losowania niekompletna dla zawodnika ID {zawodnik_id}.", "danger")
+                    return redirect(url_for('losowanie'))
+            wyniki_do_zapisu.append(wynik)
+        else:
+            logger.error(f"Sequence Draw Save Error: Matrix index {idx} out of bounds (matrix len: {len(macierz_losowania)})")
+            flash("Błąd wewnętrzny: Niezgodność wymiarów macierzy losowania.", "danger")
+            return redirect(url_for('losowanie'))
 
-            if wyniki_do_zapisu:
-                try:
-                    db.session.add_all(wyniki_do_zapisu)
-                    db.session.commit()
-                    flash('Wylosowano sekwencje (strefy) dla pełnej obsady!', 'success')
-                    print("Zapisano wyniki losowania stref.")
-                except Exception as e:
-                     db.session.rollback()
-                     flash(f"Błąd podczas zapisywania wyników losowania stref: {e}", "danger")
-                     print(f"Błąd zapisu do DB: {e}")
-            else:
-                flash("Nie wygenerowano żadnych wyników losowania stref do zapisu.", "error")
-        # else: (flash o błędzie był już wcześniej)
-
+    # Zapis do bazy w transakcji
+    if wyniki_do_zapisu:
+        try:
+            with db.session.begin_nested():
+                # Usuń stare wyniki losowania DLA PEWNOŚCI
+                WynikLosowania.query.filter_by(zawody_id=zawody_id).delete(synchronize_session=False)
+                # Dodaj nowe wyniki
+                db.session.add_all(wyniki_do_zapisu)
+            db.session.commit()
+            flash('Wylosowano sekwencje (strefy) dla pełnej obsady!', 'success')
+            logger.info(f"Sequence Draw results saved successfully for comp {zawody_id}.")
+        except Exception as e:
+             db.session.rollback()
+             logger.error(f"Sequence Draw: Error saving results to DB: {e}", exc_info=True)
+             flash(f"Błąd podczas zapisywania wyników losowania stref: {e}", "danger")
+             # Przekieruj do losowania, bo zapis się nie udał
+             return redirect(url_for('losowanie'))
     else:
-        print("Nie zapisano wyników losowania stref z powodu błędu krytycznego (konfiguracja niemożliwa).")
+        # Ten komunikat nie powinien się pojawić, jeśli sukces_losowania_stref=True
+        flash("Nie wygenerowano żadnych wyników losowania stref do zapisu (błąd wewnętrzny).", "error")
+        logger.error(f"Sequence Draw: No results to save despite reported success for comp {zawody_id}.")
+        return redirect(url_for('losowanie'))
 
+    # Przekieruj do wyników losowania, gdzie użytkownik może kontynuować (losować sektory/stanowiska)
     return redirect(url_for('wyniki_losowania'))
 
 
@@ -1405,80 +1444,128 @@ def wyniki_losowania():
                            max_stanowisko=max_global_stanowisko)
 
 
+# === Trasa generowania PDF (z czcionkami Roboto) ===
 @app.route('/generuj_pdf/<int:tura>')
 @login_required
 def generuj_pdf(tura):
-    if 'current_zawody_id' not in session:
-        flash('Najpierw wybierz zawody!', 'error')
-        return redirect(url_for('zawody'))
+    """
+    Generuje PDF z listą startową i miejscem na wyniki dla podanej tury,
+    grupując po strefach (max 2 sektory na strefę/stronę), używając czcionek Roboto.
+    """
+    logger = current_app.logger if current_app else logging.getLogger(__name__)
+    logger.info(f">>> Generating PDF (Roboto fonts) for R:{tura} by {current_user.username}")
 
-    zawody_id = session['current_zawody_id']
-    zawody = Zawody.query.get_or_404(zawody_id)
+    # --- Sprawdzenie sesji i danych zawodów ---
+    if 'current_zawody_id' not in session: flash('Wybierz zawody!', 'error'); return redirect(url_for('wyniki_losowania'))
+    zawody_id = session['current_zawody_id']; zawody = db.session.get(Zawody, zawody_id)
     ustawienia = UstawieniaZawodow.query.filter_by(zawody_id=zawody_id).first()
+    if not zawody: flash("Nie znaleziono zawodów.", 'error'); return redirect(url_for('zawody'))
+    if not ustawienia: flash("Brak ustawień.", "error"); return redirect(url_for('ustawienia'))
+    if not (1 <= tura <= ustawienia.liczba_tur): flash(f'Zła tura ({tura}).', 'error'); return redirect(url_for('wyniki_losowania'))
 
-    if not ustawienia or tura < 1 or tura > ustawienia.liczba_tur:
-        flash('Nieprawidłowy numer tury lub brak ustawień.', 'error')
-        return redirect(url_for('wyniki_losowania'))
-
-    wyniki_q = WynikLosowania.query.options(db.joinedload(WynikLosowania.zawodnik)).filter_by(zawody_id=zawody_id).all()
-
-    def get_sort_key(wynik):
-        stanowisko = getattr(wynik, f'tura{tura}_stanowisko', None)
-        return (stanowisko is None, stanowisko)
-    wyniki_q.sort(key=get_sort_key)
-
-    dane_do_tabeli = [["Nr Start.", "Zawodnik", "Strefa", "Sektor", "Stanowisko"]]
-    for i, wynik in enumerate(wyniki_q):
-        nr_startowy = i + 1
-        imie_nazwisko = "Puste Miejsce"
-        if wynik.zawodnik and not wynik.zawodnik.is_puste_miejsce:
-             imie_nazwisko = wynik.zawodnik.imie_nazwisko
-
-        strefa = getattr(wynik, f'tura{tura}_strefa', '') or '?'
-        sektor = getattr(wynik, f'tura{tura}_sektor', '') or '?'
-        stanowisko_val = getattr(wynik, f'tura{tura}_stanowisko', None)
-        stanowisko = str(stanowisko_val) if stanowisko_val is not None else '?'
-
-        dane_do_tabeli.append([str(nr_startowy), imie_nazwisko, strefa, sektor, stanowisko])
-
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter)
-    story = []
-    styles = getSampleStyleSheet()
-    tytul_str = f"Lista Startowa - {zawody.nazwa} - Tura {tura}"
-    story.append(Paragraph(tytul_str, styles['h1']))
-    story.append(Spacer(1, 12))
-
-    tabela = Table(dane_do_tabeli)
-    style = TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('TOPPADDING', (0, 1), (-1,-1), 6),
-        ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-    ])
-    tabela.setStyle(style)
-    story.append(tabela)
-
+    # --- Pobranie Danych ---
     try:
+        wyniki_los_q = WynikLosowania.query.options(joinedload(WynikLosowania.zawodnik)).filter(WynikLosowania.zawody_id == zawody_id).all()
+        if not wyniki_los_q: flash(f"Brak wyników losowania.", "warning"); return redirect(url_for('wyniki_losowania'))
+        wyniki_wag_q = Wynik.query.filter_by(zawody_id=zawody_id, tura=tura).all()
+        mapa_wynikow_wag = {w.zawodnik_id: {'waga': w.waga, 'bigfish': w.bigfish} for w in wyniki_wag_q}
+    except Exception as e: logger.error(f"PDF Data fetch error T{tura}: {e}", exc_info=True); flash(f"Błąd danych: {e}", "danger"); return redirect(url_for('wyniki_losowania'))
+
+    # --- Grupowanie Danych ---
+    strefa_attr, sektor_attr, stanowisko_attr = f'tura{tura}_strefa', f'tura{tura}_sektor', f'tura{tura}_stanowisko'
+    dane_pogrupowane = defaultdict(lambda: defaultdict(list)); zawodnicy_bez = []
+    for wl in wyniki_los_q:
+        s, sek, st, zid = getattr(wl, strefa_attr, None), getattr(wl, sektor_attr, None), getattr(wl, stanowisko_attr, None), wl.zawodnik_id
+        im, puste = ("Puste Miejsce", True) if not wl.zawodnik or wl.zawodnik.is_puste_miejsce else (wl.zawodnik.imie_nazwisko, False)
+        wag = mapa_wynikow_wag.get(zid, {'waga': None, 'bigfish': None})
+        dane_z = {'id': zid, 'imie_nazwisko': im, 'stanowisko': st, 'strefa': s, 'sektor': sek, 'is_puste': puste, 'waga': wag.get('waga'), 'big_fish': wag.get('bigfish')}
+        if s and sek: dane_pogrupowane[s][sek].append(dane_z)
+        else:
+            if not puste: logger.warning(f"PDF T{tura}: Competitor '{im}' (ID:{zid}) no zone/sector.")
+            zawodnicy_bez.append(dane_z)
+    posort_strefy = sorted(dane_pogrupowane.keys(), key=lambda x: int(x) if x.isdigit() else float('inf'))
+    if not posort_strefy: flash(f"Brak zawodników ze strefą/sektorem T{tura}.", "warning"); return redirect(url_for('wyniki_losowania'))
+
+    # --- Generowanie PDF ---
+    buffer = io.BytesIO(); story = []
+    try:
+        page_size = A4; doc = SimpleDocTemplate(buffer, pagesize=page_size, leftMargin=1.5*cm, rightMargin=1.5*cm, topMargin=1.5*cm, bottomMargin=1.5*cm)
+        styles = getSampleStyleSheet()
+
+        # === UŻYCIE CZCIONEK ROBOTO W STYLACH ===
+        font_reg = ROBOTO_REGULAR # Nazwa zarejestrowana dla Roboto-Regular.ttf
+        font_bold = ROBOTO_BOLD   # Nazwa zarejestrowana dla Roboto-Bold.ttf (lub -SemiBold)
+        font_italic = ROBOTO_ITALIC # Nazwa zarejestrowana dla Roboto-Italic.ttf
+        # font_black = ROBOTO_BLACK # Jeśli chcesz użyć najgrubszej wersji
+
+        naglowek_strefy_style = ParagraphStyle(name='NaglowekStrefy', parent=styles['h2'], alignment=TA_CENTER, spaceAfter=10, fontSize=14, fontName=font_bold) # Użyj Bold
+        naglowek_sektora_style = ParagraphStyle(name='NaglowekSektora', parent=styles['h3'], alignment=TA_LEFT, spaceBefore=8, spaceAfter=4, fontSize=11, fontName=font_bold) # Użyj Bold
+        common_cell_style = ParagraphStyle(name='CommonCell', parent=styles['Normal'], alignment=TA_CENTER, fontSize=9, leading=14, fontName=font_reg) # Użyj Regular
+        zawodnik_style_pdf = ParagraphStyle(name='ZawodStylePDF', parent=common_cell_style, alignment=TA_LEFT, fontName=font_reg) # Użyj Regular
+        # Styl dla kursywy w pustych miejscach
+        puste_miejsce_style = ParagraphStyle(name='PusteStyle', parent=zawodnik_style_pdf, fontName=font_italic) # Użyj Italic
+
+        # Styl tabeli z czcionkami Roboto
+        style_tabeli = TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue), ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, 0), 'CENTER'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('FONTNAME', (0, 0), (-1, 0), font_bold), # <<< CZCIONKA NAGŁÓWKA
+            ('FONTSIZE', (0, 0), (-1, 0), 10), ('BOTTOMPADDING', (0, 0), (-1, 0), 8), ('TOPPADDING', (0, 0), (-1, 0), 8),
+            ('FONTNAME', (0, 1), (-1, -1), font_reg), # <<< CZCIONKA DANYCH
+            ('FONTSIZE', (0, 1), (-1, -1), 9), ('TOPPADDING', (0, 1), (-1, -1), 8), ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.darkgrey), ('BOX', (0, 0), (-1, -1), 1, colors.black),
+        ])
+        # === KONIEC UŻYCIA CZCIONEK ROBOTO ===
+
+        first_page = True
+        for strefa in posort_strefy:
+            sektory_w_strefie = dane_pogrupowane[strefa]
+            posort_sektory_w_strefie = sorted(sektory_w_strefie.keys())
+            sektory_do_wyswietlenia = posort_sektory_w_strefie[:2]
+            if not sektory_do_wyswietlenia: continue
+            if not first_page: story.append(PageBreak())
+            else: first_page = False
+            naglowek_str_strefa = f"{zawody.nazwa} - Tura {tura}<br/>Strefa: {strefa}"; story.append(Paragraph(naglowek_str_strefa, naglowek_strefy_style)); story.append(Spacer(1, 0.1*inch))
+            elementy_strefy = []
+            for sektor in sektory_do_wyswietlenia:
+                zawodnicy = sektory_w_strefie.get(sektor, [])
+                if not zawodnicy: continue
+                zawodnicy.sort(key=lambda z: (z['stanowisko'] is None, z['stanowisko'] if z['stanowisko'] is not None else float('inf')))
+                elementy_strefy.append(Spacer(1, 0.15*inch)); elementy_strefy.append(Paragraph(f"Sektor: {sektor}", naglowek_sektora_style)); elementy_strefy.append(Spacer(1, 0.05*inch))
+                dane_tabeli = [["Zawodnik", "Stan.", "Waga (g)", "Big Fish (g)"]]; style_commands = []
+                for i, zaw in enumerate(zawodnicy):
+                    row_idx = i + 1
+                    # Użyj odpowiedniego stylu Paragraph dla pustych miejsc
+                    zaw_cell = Paragraph(zaw['imie_nazwisko'], puste_miejsce_style if zaw['is_puste'] else zawodnik_style_pdf)
+                    stan_cell = Paragraph(str(zaw['stanowisko']) if zaw['stanowisko'] is not None else '?', common_cell_style)
+                    waga_cell = Paragraph(str(zaw['waga']) if zaw['waga'] is not None else '', common_cell_style)
+                    bf_cell = Paragraph(str(zaw['big_fish']) if zaw['big_fish'] is not None else '', common_cell_style)
+                    dane_tabeli.append([zaw_cell, stan_cell, waga_cell, bf_cell])
+                    if zaw['is_puste']: style_commands.append(('TEXTCOLOR', (0, row_idx), (-1, row_idx), colors.darkgrey)); style_commands.append(('BACKGROUND', (0, row_idx), (-1, row_idx), colors.Color(0.92,0.92,0.92)))
+                col_widths = [6.0*cm, 2.0*cm, 4.0*cm, 6.0*cm] # Dostosuj
+                tabela = Table(dane_tabeli, colWidths=col_widths)
+                final_style = TableStyle(style_tabeli.getCommands() + style_commands)
+                tabela.setStyle(final_style); elementy_strefy.append(tabela)
+            story.append(KeepTogether(elementy_strefy))
+
+        # Strona dla zawodników bez strefy/sektora (jeśli chcesz)
+        if zawodnicy_bez:
+             story.append(PageBreak()); story.append(Paragraph(f"{zawody.nazwa} - Tura {tura}<br/>Bez strefy/sektora", naglowek_strefy_style)); story.append(Spacer(1, 0.2*inch))
+             dane_b = [["Zawodnik", "Stanowisko", "Waga (g)", "Big Fish (g)"]]; style_cb = []
+             for i, zaw in enumerate(sorted(zawodnicy_bez, key=lambda z: z['imie_nazwisko'])):
+                  row_idx = i + 1; zt = zaw['imie_nazwisko']; wt = str(zaw['waga']) if zaw['waga'] is not None else ''; bt = str(zaw['big_fish']) if zaw['big_fish'] is not None else ''
+                  zc = Paragraph(zt, puste_miejsce_style if zaw['is_puste'] else zawodnik_style_pdf); sc = Paragraph(str(zaw['stanowisko']) if zaw['stanowisko'] is not None else '?', common_cell_style); wc = Paragraph(wt, common_cell_style); bc = Paragraph(bt, common_cell_style)
+                  dane_b.append([zc, sc, wc, bc])
+                  if zaw['is_puste']: style_cb.append(('TEXTCOLOR',(0,row_idx),(-1,row_idx),colors.darkgrey)); style_cb.append(('BACKGROUND',(0,row_idx),(-1,row_idx),colors.Color(0.92,0.92,0.92)))
+             tbl_b = Table(dane_b, colWidths=[6.0*cm, 2.0*cm, 4.0*cm, 6.0*cm]); tbl_b.setStyle(TableStyle(style_tabeli.getCommands() + style_cb)); story.append(tbl_b)
+
+        # --- Budowanie PDF ---
         doc.build(story)
         buffer.seek(0)
-        response = make_response(buffer.getvalue())
-        response.headers['Content-Type'] = 'application/pdf'
-        # Użyj bezpiecznej nazwy pliku
-        safe_nazwa_zawodow = "".join([c for c in zawody.nazwa if c.isalnum() or c in (' ', '-')]).rstrip()
-        response.headers['Content-Disposition'] = f'inline; filename="lista_startowa_{safe_nazwa_zawodow}_tura_{tura}.pdf"'
-        return response
-    except Exception as e:
-        flash(f"Błąd podczas generowania PDF: {e}", "danger")
-        print(f"Błąd PDF: {e}")
-        return redirect(url_for('wyniki_losowania'))
+        # --- Odpowiedź HTTP ---
+        response = make_response(buffer.getvalue()); response.headers['Content-Type'] = 'application/pdf'; safe_n = "".join(c for c in zawody.nazwa if c.isalnum() or c in (' ','-')).rstrip().replace(' ','_'); filename = f'wyniki_strefy_{safe_n}_tura_{tura}.pdf'; response.headers['Content-Disposition'] = f'inline; filename="{filename}"'; logger.info(f"Generated PDF: {filename}"); return response
+    except Exception as e: logger.error(f"PDF Gen Error T{tura}: {e}", exc_info=True); traceback.print_exc(); flash(f"Błąd PDF: {e}", "danger"); return redirect(url_for('wyniki_losowania'))
+
 
 
 @app.route('/zawody', methods=['GET', 'POST'])
@@ -2424,8 +2511,67 @@ def public_lista_zawodow():
                            zawody_lista=zawody_lista,
                            error_message=error_message)
 
-# ==========================================================
-# === KONIEC PUBLICZNEJ LISTY ===
-# ==========================================================
+# === Trasa /delete_user/<int:user_id> ===
+@app.route('/delete_user/<int:user_id>', methods=['POST']) # Tylko metoda POST
+@login_required
+@role_required('admin') # Tylko admin może usuwać
+def delete_user(user_id):
+    """ Usuwa użytkownika o podanym ID (z zabezpieczeniami). """
+    logger = current_app.logger if current_app else logging.getLogger(__name__)
 
-# ... (reszta tras) ...
+    # === Walidacja CSRF (Automatyczna przez Flask-WTF/CSRFProtect) ===
+    # Flask-WTF automatycznie sprawdzi token wysłany z {{ csrf_form.hidden_tag() }}
+    # Nie potrzebujemy tutaj ręcznej walidacji validate_csrf(), jeśli CSRFProtect(app) jest aktywne.
+    # Jeśli jednak NIE używasz globalnego CSRFProtect, musisz ręcznie dodać i sprawdzić token.
+
+    # Zabezpieczenie: Admin nie może usunąć samego siebie
+    if user_id == current_user.id:
+        flash('Nie możesz usunąć własnego konta!', 'danger')
+        logger.warning(f"Admin {current_user.username} attempted to delete their own account (ID: {user_id}).")
+        return redirect(url_for('user_list'))
+
+    # Pobierz użytkownika do usunięcia
+    # Używamy db.session.get dla zgodności z SQLAlchemy 2+
+    user_to_delete = db.session.get(User, user_id)
+
+    # Sprawdź, czy użytkownik istnieje
+    if not user_to_delete:
+        flash(f'Nie znaleziono użytkownika o ID {user_id} do usunięcia.', 'warning')
+        return redirect(url_for('user_list'))
+
+    # Zabezpieczenie: Nie można usunąć admina z ID 1
+    is_protected = False
+    if user_to_delete.id == 1 and user_to_delete.role == 'admin':
+        is_protected = True
+        flash('Nie można usunąć głównego administratora (ID 1)!', 'danger')
+        logger.warning(f"Admin {current_user.username} attempted to delete protected admin ID 1.")
+
+    # Można dodać tu inne reguły ochrony, jeśli potrzeba (np. blokowanie usuwania innych adminów)
+    # elif user_to_delete.role == 'admin':
+    #     is_protected = True
+    #     flash(...)
+    #     logger.warning(...)
+
+    if is_protected:
+        return redirect(url_for('user_list')) # Przekieruj, jeśli użytkownik jest chroniony
+
+    # Jeśli można usunąć, kontynuuj
+    username_deleted = user_to_delete.username # Zapisz nazwę dla komunikatu
+    try:
+        # Użyj transakcji dla bezpieczeństwa
+        with db.session.begin_nested(): # Lub db.session.begin()
+            db.session.delete(user_to_delete)
+        db.session.commit() # Zatwierdź usunięcie
+        flash(f'Użytkownik "{username_deleted}" został pomyślnie usunięty.', 'success')
+        logger.info(f"Admin {current_user.username} deleted user '{username_deleted}' (ID: {user_id}).")
+    except SQLAlchemyError as db_err: # Łap błędy DB
+        db.session.rollback()
+        logger.error(f"Database error deleting user ID {user_id}: {db_err}", exc_info=True)
+        flash(f'Wystąpił błąd bazy danych podczas usuwania użytkownika: {db_err}', 'danger')
+    except Exception as e: # Łap inne błędy
+        db.session.rollback()
+        logger.error(f"Error deleting user ID {user_id}: {e}", exc_info=True)
+        flash(f'Wystąpił nieoczekiwany błąd podczas usuwania użytkownika: {e}', 'danger')
+
+    # Zawsze przekieruj z powrotem do listy użytkowników
+    return redirect(url_for('user_list'))
